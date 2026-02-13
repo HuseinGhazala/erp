@@ -1,6 +1,6 @@
 # Trackify AI
 
-تطبيق ويب لتتبع وقت العمل مع المهام، مراقبة الشاشة (اختياري)، والذكاء الاصطناعي (Gemini).
+تطبيق ويب لتتبع وقت العمل مع المهام، مراقبة الشاشة (اختياري)، والذكاء الاصطناعي (Gemini). يدعم **عدة موظفين** عبر ربط Supabase.
 
 ## التشغيل
 
@@ -10,6 +10,18 @@ npm run dev
 ```
 
 ثم افتح المتصفح على العنوان الذي يظهر (عادةً `http://localhost:5173`).
+
+## ربط Supabase (عدة موظفين)
+
+1. أنشئ مشروعاً في [Supabase](https://supabase.com/dashboard) وانسخ **Project URL** و **anon public** key.
+2. أنشئ ملف `.env` في جذر المشروع (انظر `.env.example`):
+   ```env
+   VITE_SUPABASE_URL=https://xxxx.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key
+   ```
+3. في لوحة Supabase: **SQL Editor** → New query → الصق محتوى الملف `supabase/schema.sql` → Run.
+4. من **Authentication → Providers** تأكد أن Email مفعّل (واختيارياً فعّل "Confirm email" إن أردت).
+5. أعد تشغيل `npm run dev`. ستظهر شاشة تسجيل الدخول؛ كل موظف يسجّل بحسابه وستُحفظ المهام وجلسات العمل له وحده.
 
 ## البناء للإنتاج
 

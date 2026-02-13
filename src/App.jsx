@@ -15,25 +15,39 @@ import {
   X,
   ShieldAlert,
   Zap,
-  Eye
+  Eye,
+  LogOut,
+  Mail,
+  Lock
 } from 'lucide-react';
+import { supabase, isSupabaseEnabled } from './lib/supabase';
 
-// API Configuration - ضع مفتاح Gemini API هنا
-const apiKey = "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+// API Configuration - من الكود أو من .env (VITE_GEMINI_API_KEY)
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
+const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}` : null;
+
+const defaultTasks = [
+  { id: 1, text: 'تحليل متطلبات النظام الجديد', completed: true },
+  { id: 2, text: 'اجتماع الفريق الصباحي', completed: false },
+];
+const defaultHistory = [
+  { date: '2023-10-25', start: '09:00 AM', end: '01:00 PM', duration: '4h 00m', tasks: 3 },
+];
 
 const App = () => {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseEnabled());
+  const [authError, setAuthError] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+
   const [isWorking, setIsWorking] = useState(false);
   const [startTime, setStartTime] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [tasks, setTasks] = useState([
-    { id: 1, text: 'تحليل متطلبات النظام الجديد', completed: true },
-    { id: 2, text: 'اجتماع الفريق الصباحي', completed: false },
-  ]);
+  const [tasks, setTasks] = useState(defaultTasks);
   const [newTask, setNewTask] = useState('');
-  const [history, setHistory] = useState([
-    { date: '2023-10-25', start: '09:00 AM', end: '01:00 PM', duration: '4h 00m', tasks: 3 },
-  ]);
+  const [history, setHistory] = useState(defaultHistory);
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // AI States
@@ -75,6 +89,77 @@ const App = () => {
     }
     return () => clearInterval(screenshotTimer);
   }, [isWorking, monitoringEnabled, monitoringMode, screenStream]);
+
+  // Supabase Auth: جلب الجلسة ومتابعة تغيير تسجيل الدخول
+  useEffect(() => {
+    if (!isSupabaseEnabled()) {
+      setAuthLoading(false);
+      return;
+    }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // تحميل المهام والأرشيف من Supabase عند وجود مستخدم
+  useEffect(() => {
+    if (!user?.id || !supabase) return;
+    const loadTasks = async () => {
+      const { data } = await supabase.from('tasks').select('id, text, completed').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (data?.length) setTasks(data.map(t => ({ id: t.id, text: t.text, completed: t.completed })));
+    };
+    const loadHistory = async () => {
+      const { data } = await supabase.from('work_sessions').select('date, start_time as start, end_time as end, duration, tasks_completed as tasks').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (data?.length) setHistory(data);
+    };
+    loadTasks();
+    loadHistory();
+  }, [user?.id]);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      if (error) throw error;
+    } catch (err) {
+      setAuthError(err.message || 'فشل تسجيل الدخول');
+    }
+  };
+
+  const handleSignUp = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword, options: { data: { full_name: authEmail.split('@')[0] } } });
+      if (error) throw error;
+      setAuthError('');
+      setAuthMode('login');
+    } catch (err) {
+      setAuthError(err.message || 'فشل إنشاء الحساب');
+    }
+  };
+
+  const handleLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setUser(null);
+    setTasks(defaultTasks);
+    setHistory(defaultHistory);
+  };
+
+  const syncTaskToSupabase = async (task, isDelete = false) => {
+    if (!user?.id || !supabase) return;
+    if (isDelete) {
+      await supabase.from('tasks').delete().eq('id', task.id);
+      return;
+    }
+    await supabase.from('tasks').upsert({ id: task.id, user_id: user.id, text: task.text, completed: task.completed, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+  };
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -196,6 +281,11 @@ const App = () => {
   };
 
   const callGemini = async (prompt) => {
+    if (!GEMINI_URL) {
+      setAiResponse("لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env");
+      setShowAiModal(true);
+      return;
+    }
     setAiLoading(true);
     let delay = 1000;
     for (let i = 0; i < 5; i++) {
@@ -231,13 +321,24 @@ const App = () => {
       setIsWorking(true);
       setStartTime(new Date().toLocaleTimeString());
     } else {
-      setHistory([{
+      const entry = {
         date: new Date().toLocaleDateString('ar-EG'),
         start: startTime,
         end: new Date().toLocaleTimeString(),
         duration: formatTime(elapsedTime),
         tasks: tasks.filter(t => t.completed).length
-      }, ...history]);
+      };
+      setHistory([entry, ...history]);
+      if (user?.id && supabase) {
+        supabase.from('work_sessions').insert({
+          user_id: user.id,
+          date: entry.date,
+          start_time: entry.start,
+          end_time: entry.end,
+          duration: entry.duration,
+          tasks_completed: entry.tasks
+        }).then(() => {});
+      }
       setIsWorking(false);
       setElapsedTime(0);
       if (screenStream) {
@@ -248,11 +349,57 @@ const App = () => {
     }
   };
 
+  const showAuth = isSupabaseEnabled() && !user && !authLoading;
+  const showApp = !isSupabaseEnabled() || user;
+
   return (
     <div className="min-h-screen bg-slate-50 text-right flex flex-col items-center p-4 font-sans" dir="rtl">
       <video ref={videoRef} autoPlay className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* شاشة تحميل Auth */}
+      {authLoading && (
+        <div className="fixed inset-0 flex items-center justify-center bg-slate-50 z-50">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+            <p className="text-slate-500 font-medium">جاري التحقق...</p>
+          </div>
+        </div>
+      )}
+
+      {/* شاشة تسجيل الدخول / إنشاء حساب (Supabase) */}
+      {showAuth && (
+        <div className="w-full max-w-md mt-20 bg-white rounded-[3rem] shadow-xl border border-slate-100 p-10">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="bg-indigo-600 p-3 rounded-2xl text-white"><Clock className="w-8 h-8"/></div>
+            <div>
+              <h1 className="text-2xl font-black text-slate-800">Trackify AI</h1>
+              <p className="text-slate-500 text-sm">تسجيل الدخول للموظفين</p>
+            </div>
+          </div>
+          <form onSubmit={authMode === 'login' ? handleLogin : handleSignUp} className="space-y-5">
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Mail className="w-4 h-4"/> البريد الإلكتروني</label>
+              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="name@company.com" />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Lock className="w-4 h-4"/> كلمة المرور</label>
+              <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="••••••••" />
+            </div>
+            {authError && <p className="text-rose-600 text-sm font-medium">{authError}</p>}
+            <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition">
+              {authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب'}
+            </button>
+          </form>
+          <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(''); }} className="w-full mt-4 text-slate-500 text-sm font-medium hover:text-indigo-600">
+            {authMode === 'login' ? 'ليس لديك حساب؟ إنشاء حساب' : 'لديك حساب؟ تسجيل الدخول'}
+          </button>
+        </div>
+      )}
+
+      {/* التطبيق الرئيسي */}
+      {showApp && (
+        <>
       {/* AI Modal */}
       {showAiModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -427,20 +574,35 @@ const App = () => {
              <h2 className="text-3xl font-black mb-10 text-slate-800 flex items-center gap-4">
                <ListTodo className="text-indigo-600 w-8 h-8"/> المهام الحالية
              </h2>
-             <form onSubmit={(e) => { e.preventDefault(); if(newTask) setTasks([{id:Date.now(), text:newTask, completed:false}, ...tasks]); setNewTask(''); }} className="flex gap-4 mb-10">
+             <form onSubmit={async (e) => { 
+               e.preventDefault(); 
+               if (!newTask.trim()) return; 
+               if (user?.id && supabase) { 
+                 const { data } = await supabase.from('tasks').insert({ user_id: user.id, text: newTask.trim(), completed: false }).select().single(); 
+                 if (data) setTasks([data, ...tasks]); 
+               } else { 
+                 setTasks([{ id: Date.now(), text: newTask.trim(), completed: false }, ...tasks]); 
+               } 
+               setNewTask(''); 
+             }} className="flex gap-4 mb-10">
                <input value={newTask} onChange={e => setNewTask(e.target.value)} className="flex-1 bg-slate-50 p-5 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 border border-slate-100 transition-all text-lg font-medium" placeholder="أضف مهمة جديدة للعمل..." />
-               <button className="bg-slate-900 text-white px-10 rounded-2xl hover:bg-black transition shadow-xl shadow-slate-200 active:scale-95"><Plus className="w-8 h-8"/></button>
+               <button type="submit" className="bg-slate-900 text-white px-10 rounded-2xl hover:bg-black transition shadow-xl shadow-slate-200 active:scale-95"><Plus className="w-8 h-8"/></button>
              </form>
              <div className="space-y-4">
                {tasks.map(t => (
                  <div key={t.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-transparent hover:border-indigo-100 hover:bg-white transition-all group shadow-sm">
                    <div className="flex items-center gap-5">
-                     <button onClick={() => setTasks(tasks.map(x => x.id === t.id ? {...x, completed: !x.completed} : x))} className={`w-9 h-9 rounded-full border-2 transition-all duration-500 ${t.completed ? 'bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-100' : 'border-slate-300 bg-white hover:border-indigo-400'}`}>
+                     <button onClick={() => {
+                       const updated = tasks.map(x => x.id === t.id ? {...x, completed: !x.completed} : x);
+                       setTasks(updated);
+                       const task = updated.find(x => x.id === t.id);
+                       if (task) syncTaskToSupabase(task);
+                     }} className={`w-9 h-9 rounded-full border-2 transition-all duration-500 ${t.completed ? 'bg-emerald-500 border-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-100' : 'border-slate-300 bg-white hover:border-indigo-400'}`}>
                        {t.completed && <CheckCircle className="w-6 h-6"/>}
                      </button>
                      <span className={`${t.completed ? 'line-through text-slate-400' : 'text-slate-700 font-bold text-xl'}`}>{t.text}</span>
                    </div>
-                   <button onClick={() => setTasks(tasks.filter(x => x.id !== t.id))} className="text-slate-300 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"><Trash2 className="w-6 h-6"/></button>
+                   <button onClick={() => { setTasks(tasks.filter(x => x.id !== t.id)); syncTaskToSupabase(t, true); }} className="text-slate-300 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100"><Trash2 className="w-6 h-6"/></button>
                  </div>
                ))}
              </div>
@@ -477,9 +639,14 @@ const App = () => {
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl rotate-3"><User className="w-8 h-8"/></div>
           <div className="text-right">
-            <p className="text-xl font-black text-slate-800 leading-none">أحمد محمد</p>
-            <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-[0.2em]">Part-Time Fullstack Expert</p>
+            <p className="text-xl font-black text-slate-800 leading-none">{user?.user_metadata?.full_name || user?.email || 'أحمد محمد'}</p>
+            <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-[0.2em]">{user ? (user.email || 'موظف') : 'Part-Time Fullstack Expert'}</p>
           </div>
+          {user && supabase && (
+            <button onClick={handleLogout} className="mr-4 p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-2 font-bold text-sm" title="تسجيل الخروج">
+              <LogOut className="w-5 h-5"/> خروج
+            </button>
+          )}
         </div>
         <div className="flex flex-col items-end gap-3">
           <div className="flex gap-3">
@@ -489,6 +656,8 @@ const App = () => {
           <p className="text-[10px] text-slate-300 font-medium italic">تم تفعيل وضع الأمان التلقائي لضمان استقرار التطبيق</p>
         </div>
       </footer>
+        </>
+      )}
     </div>
   );
 };
