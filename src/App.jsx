@@ -52,7 +52,7 @@ const App = () => {
   const [adminSelectedForTask, setAdminSelectedForTask] = useState(null);
   const [adminTaskText, setAdminTaskText] = useState('');
   const [adminSelectedForActivity, setAdminSelectedForActivity] = useState(null);
-  const [adminActivityData, setAdminActivityData] = useState({ sessions: [], tasks: [] });
+  const [adminActivityData, setAdminActivityData] = useState({ sessions: [], tasks: [], screenshots: [] });
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
   
@@ -71,6 +71,11 @@ const App = () => {
   
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+
+  // اسم العرض ودور الأدمن (يُعرَّفان مبكراً لأن useEffects تستخدمهما)
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
+  const displayRole = profile?.role || 'موظف';
+  const isAdmin = profile?.role === 'admin';
 
   // Timer logic
   useEffect(() => {
@@ -102,10 +107,12 @@ const App = () => {
       setAuthLoading(false);
       return;
     }
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+      })
+      .catch(() => setUser(null))
+      .finally(() => setAuthLoading(false));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -195,15 +202,22 @@ const App = () => {
   const openActivityForEmployee = async (emp) => {
     setAdminSelectedForActivity(emp);
     setShowActivityModal(true);
+    setAdminActivityData({ sessions: [], tasks: [], screenshots: [] });
     if (!supabase) return;
-    const [sessionsRes, tasksRes] = await Promise.all([
+    const [sessionsRes, tasksRes, screensRes] = await Promise.all([
       supabase.from('work_sessions').select('date, start_time, end_time, duration, tasks_completed').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(20),
-      supabase.from('tasks').select('id, text, completed').eq('user_id', emp.id).order('created_at', { ascending: false })
+      supabase.from('tasks').select('id, text, completed').eq('user_id', emp.id).order('created_at', { ascending: false }),
+      supabase.from('screenshots').select('id, file_path, time_display, is_virtual, created_at').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(30)
     ]);
-    setAdminActivityData({
-      sessions: (sessionsRes.data || []).map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') })),
-      tasks: tasksRes.data || []
-    });
+    const sessions = (sessionsRes.data || []).map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') }));
+    const tasks = tasksRes.data || [];
+    const screenshotRows = screensRes.data || [];
+    const screenshotsWithUrls = [];
+    for (const row of screenshotRows) {
+      const { data: signed } = await supabase.storage.from('screenshots').createSignedUrl(row.file_path, 3600);
+      screenshotsWithUrls.push({ ...row, url: signed?.signedUrl || null });
+    }
+    setAdminActivityData({ sessions, tasks, screenshots: screenshotsWithUrls });
   };
 
   const handleLogout = async () => {
@@ -228,11 +242,6 @@ const App = () => {
     const s = seconds % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
-
-  // اسم العرض للموظف (من profiles أو من Auth)
-  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
-  const displayRole = profile?.role || 'موظف';
-  const isAdmin = profile?.role === 'admin';
 
   // تحويل مدة من النص إلى ثوانٍ (يدعم "00:45:30" أو "2h 15m")
   const parseDurationToSeconds = (dur) => {
@@ -339,13 +348,15 @@ const App = () => {
         ctx.fillRect(100, 500 + (i*30), 200 + (Math.random()*400), 10);
     }
 
+    const timeStr = new Date().toLocaleTimeString('ar-EG');
     const imageData = canvas.toDataURL('image/png');
     setScreenshots(prev => [{
       id: Date.now(),
-      time: new Date().toLocaleTimeString('ar-EG'),
+      time: timeStr,
       data: imageData,
       isVirtual: true
     }, ...prev].slice(0, 10));
+    saveScreenshotToSupabase(imageData, true, timeStr);
   };
 
   const takeScreenshot = () => {
@@ -361,13 +372,26 @@ const App = () => {
     canvasRef.current.height = 720;
     context.drawImage(videoRef.current, 0, 0, 1280, 720);
     
+    const timeStr = new Date().toLocaleTimeString('ar-EG');
     const imageData = canvasRef.current.toDataURL('image/png');
     setScreenshots(prev => [{
       id: Date.now(),
-      time: new Date().toLocaleTimeString('ar-EG'),
+      time: timeStr,
       data: imageData,
       isVirtual: false
     }, ...prev].slice(0, 10));
+    saveScreenshotToSupabase(imageData, false, timeStr);
+  };
+
+  const saveScreenshotToSupabase = async (dataUrl, isVirtual, timeDisplay) => {
+    if (!supabase || !user?.id) return;
+    try {
+      const path = `${user.id}/${Date.now()}.png`;
+      const blob = await fetch(dataUrl).then(r => r.blob());
+      const { error: upErr } = await supabase.storage.from('screenshots').upload(path, blob, { contentType: 'image/png', upsert: false });
+      if (upErr) return;
+      await supabase.from('screenshots').insert({ user_id: user.id, file_path: path, is_virtual: isVirtual, time_display: timeDisplay });
+    } catch (_) {}
   };
 
   const callGemini = async (prompt) => {
@@ -446,7 +470,7 @@ const App = () => {
   const showApp = !isSupabaseEnabled() || user;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-right flex flex-col items-center p-4 font-sans" dir="rtl">
+    <div className="min-h-screen bg-slate-50 text-right flex flex-col items-center p-4 font-sans" dir="rtl" style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       <video ref={videoRef} autoPlay className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
@@ -559,6 +583,18 @@ const App = () => {
                     <div className="text-left">
                       <p className="font-black text-indigo-600">{h.duration}</p>
                       <p className="text-[10px] text-slate-400">{h.tasks_completed} مهام منجزة</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <h3 className="font-black text-slate-800 mb-3 mt-6 flex items-center gap-2"><Eye className="w-5 h-5 text-indigo-600"/> لقطات الشاشة ({adminActivityData.screenshots.length})</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-72 overflow-y-auto">
+                {adminActivityData.screenshots.length === 0 ? <p className="text-slate-400 text-sm col-span-full">لا توجد لقطات محفوظة</p> : adminActivityData.screenshots.map((s) => (
+                  <div key={s.id} className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
+                    {s.url ? <img src={s.url} alt="لقطة" className="w-full h-28 object-cover" /> : <div className="w-full h-28 bg-slate-200 flex items-center justify-center text-slate-400 text-xs">جاري التحميل</div>}
+                    <div className="p-2 text-center">
+                      <p className="text-xs font-bold text-slate-600">{s.time_display || '—'}</p>
+                      {s.is_virtual && <span className="text-[10px] text-amber-600 font-bold">افتراضي</span>}
                     </div>
                   </div>
                 ))}
@@ -811,14 +847,37 @@ const App = () => {
             <h2 className="text-3xl font-black mb-2 text-slate-800 flex items-center gap-4">
               <ShieldCheck className="text-amber-600 w-8 h-8"/> لوحة الأدمن
             </h2>
-            <p className="text-slate-500 text-sm mb-8">إضافة مهام للموظفين ومتابعة نشاطهم</p>
-            {adminLoading ? (
+            <p className="text-slate-500 text-sm mb-6">إضافة مهام للموظفين ومتابعة نشاطهم ولقطات الشاشة</p>
+
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                <Users className="w-6 h-6 text-indigo-600"/> قائمة الموظفين
+                <span className="text-sm font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">({adminEmployees.length})</span>
+              </h3>
+              <button
+                onClick={() => {
+                  if (!supabase) return;
+                  setAdminLoading(true);
+                  supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
+                    setAdminEmployees(data || []);
+                    setAdminLoading(false);
+                  }).catch(() => setAdminLoading(false));
+                }}
+                disabled={adminLoading}
+                className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 disabled:opacity-50 flex items-center gap-2"
+              >
+                {adminLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : null} تحديث القائمة
+              </button>
+            </div>
+
+            {adminLoading && adminEmployees.length === 0 ? (
               <div className="flex justify-center py-16"><Loader2 className="w-10 h-10 text-indigo-600 animate-spin"/></div>
             ) : adminEmployees.length === 0 ? (
               <div className="text-center py-16 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-slate-500">
                 <Users className="w-16 h-16 mx-auto mb-4 opacity-50"/>
                 <p className="font-bold">لا يوجد موظفون مسجلون بعد</p>
-                <p className="text-sm mt-1">سيظهرون هنا بعد إنشاء حساباتهم</p>
+                <p className="text-sm mt-1">سيظهرون هنا بعد إنشاء حساباتهم من صفحة تسجيل الدخول</p>
+                <p className="text-xs mt-3 text-slate-400">تأكد من تنفيذ admin-policies.sql في Supabase حتى تتمكن من رؤية الجميع</p>
               </div>
             ) : (
               <div className="grid gap-4">
