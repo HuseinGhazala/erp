@@ -21,7 +21,9 @@ import {
   Lock,
   ShieldCheck,
   Users,
-  Activity
+  Activity,
+  UserPlus,
+  UserMinus
 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
 
@@ -55,6 +57,16 @@ const App = () => {
   const [adminActivityData, setAdminActivityData] = useState({ sessions: [], tasks: [], screenshots: [] });
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showAddEmployeeModal, setShowAddEmployeeModal] = useState(false);
+  const [screenshotIntervalMinutes, setScreenshotIntervalMinutes] = useState(10);
+  const [adminScreenshotInterval, setAdminScreenshotInterval] = useState(10);
+  const [requestingScreenshotFor, setRequestingScreenshotFor] = useState(null);
+  const [newTaskNotification, setNewTaskNotification] = useState(null);
+  const [newEmpEmail, setNewEmpEmail] = useState('');
+  const [newEmpName, setNewEmpName] = useState('');
+  const [newEmpPassword, setNewEmpPassword] = useState('');
+  const [addEmpError, setAddEmpError] = useState('');
+  const [addEmpSuccess, setAddEmpSuccess] = useState(false);
   
   // AI States
   const [aiLoading, setAiLoading] = useState(false);
@@ -90,16 +102,59 @@ const App = () => {
     return () => clearInterval(interval);
   }, [isWorking]);
 
-  // Auto-screenshot logic (Simulates recording when blocked)
+  // جلب مدة اللقطة التلقائية من الإعدادات
+  useEffect(() => {
+    if (!supabase || !user?.id) return;
+    supabase.from('app_settings').select('value').eq('key', 'screenshot_interval_minutes').single().then(({ data }) => {
+      const n = parseInt(data?.value, 10);
+      if (n >= 1 && n <= 120) setScreenshotIntervalMinutes(n);
+    }).catch(() => {});
+  }, [supabase, user?.id]);
+
+  // Auto-screenshot logic (المدة من لوحة الأدمن)
   useEffect(() => {
     let screenshotTimer;
-    if (isWorking && monitoringEnabled) {
+    const ms = screenshotIntervalMinutes * 60 * 1000;
+    if (isWorking && monitoringEnabled && ms >= 60000) {
       screenshotTimer = setInterval(() => {
         takeScreenshot();
-      }, 600000); // 10 minutes
+      }, ms);
     }
     return () => clearInterval(screenshotTimer);
-  }, [isWorking, monitoringEnabled, monitoringMode, screenStream]);
+  }, [isWorking, monitoringEnabled, monitoringMode, screenStream, screenshotIntervalMinutes]);
+
+  // استماع لطلبات الأدمن: لقطة يدوية للموظف الحالي
+  useEffect(() => {
+    if (!supabase || !user?.id) return;
+    const channel = supabase.channel('screenshot_requests')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'screenshot_requests', filter: `user_id=eq.${user.id}` }, () => {
+        takeScreenshot();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [supabase, user?.id]);
+
+  // إشعار عند إضافة مهمة جديدة من الأدمن
+  useEffect(() => {
+    if (!supabase || !user?.id) return;
+    const channel = supabase.channel('new_tasks')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks', filter: `user_id=eq.${user.id}` }, (payload) => {
+        const row = payload.new;
+        if (row?.text) {
+          setTasks(prev => {
+            if (prev.some(t => t.id === row.id)) return prev;
+            return [{ id: row.id, text: row.text, completed: row.completed || false }, ...prev];
+          });
+          setNewTaskNotification(row.text);
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('مهمة جديدة من الإدارة', { body: row.text, icon: '/vite.svg' });
+          }
+          setTimeout(() => setNewTaskNotification(null), 6000);
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [supabase, user?.id]);
 
   // Supabase Auth: جلب الجلسة ومتابعة تغيير تسجيل الدخول
   useEffect(() => {
@@ -140,7 +195,7 @@ const App = () => {
     loadProfile();
   }, [user?.id]);
 
-  // تحميل قائمة الموظفين عند فتح لوحة الأدمن
+  // تحميل قائمة الموظفين وإعداد اللقطات عند فتح لوحة الأدمن
   useEffect(() => {
     if (!supabase || !isAdmin || activeTab !== 'admin') return;
     setAdminLoading(true);
@@ -148,6 +203,10 @@ const App = () => {
       setAdminEmployees(data || []);
       setAdminLoading(false);
     }).catch(() => setAdminLoading(false));
+    supabase.from('app_settings').select('value').eq('key', 'screenshot_interval_minutes').single().then(({ data }) => {
+      const n = parseInt(data?.value, 10);
+      if (n >= 1 && n <= 120) setAdminScreenshotInterval(n);
+    }).catch(() => {});
   }, [isAdmin, activeTab, supabase]);
 
   const handleLogin = async (e) => {
@@ -184,10 +243,69 @@ const App = () => {
     }
   };
 
+  const refetchAdminEmployees = () => {
+    if (!supabase) return;
+    setAdminLoading(true);
+    supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
+      setAdminEmployees(data || []);
+      setAdminLoading(false);
+    }).catch(() => setAdminLoading(false));
+  };
+
   const openAddTaskForEmployee = (emp) => {
     setAdminSelectedForTask(emp);
     setAdminTaskText('');
     setShowAddTaskModal(true);
+  };
+
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    setAddEmpError('');
+    if (!supabase || !newEmpEmail.trim() || !newEmpPassword.trim()) return;
+    if (newEmpPassword.length < 6) {
+      setAddEmpError('كلمة المرور 6 أحرف على الأقل');
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: newEmpEmail.trim(),
+        password: newEmpPassword,
+        options: { data: { full_name: newEmpName.trim() || newEmpEmail.split('@')[0] } }
+      });
+      if (error) throw error;
+      setAddEmpSuccess(true);
+      setNewEmpEmail('');
+      setNewEmpName('');
+      setNewEmpPassword('');
+      refetchAdminEmployees();
+    } catch (err) {
+      setAddEmpError(err?.message || 'فشل إنشاء الحساب');
+    }
+  };
+
+  const handleDeleteEmployee = async (emp) => {
+    if (!supabase || !window.confirm(`تعطيل حساب "${emp.full_name || emp.id}"؟ لن يتمكن من الدخول بعد الآن. يمكنك إعادة تفعيله لاحقاً من قسم «موظفون معطّلون».`)) return;
+    const { error } = await supabase.from('profiles').update({ role: 'محذوف' }).eq('id', emp.id);
+    if (!error) refetchAdminEmployees();
+  };
+
+  const handleRestoreEmployee = async (emp) => {
+    if (!supabase || !window.confirm(`إعادة تفعيل حساب "${emp.full_name || emp.id}"؟ سيتمكن من الدخول واستخدام التطبيق مرة أخرى.`)) return;
+    const { error } = await supabase.from('profiles').update({ role: 'موظف' }).eq('id', emp.id);
+    if (!error) refetchAdminEmployees();
+  };
+
+  const handleSaveScreenshotInterval = async () => {
+    if (!supabase || adminScreenshotInterval < 1 || adminScreenshotInterval > 120) return;
+    await supabase.from('app_settings').upsert({ key: 'screenshot_interval_minutes', value: String(adminScreenshotInterval) }, { onConflict: 'key' });
+    setScreenshotIntervalMinutes(adminScreenshotInterval);
+  };
+
+  const handleRequestScreenshotForEmployee = async (emp) => {
+    if (!supabase) return;
+    setRequestingScreenshotFor(emp.id);
+    await supabase.from('screenshot_requests').insert({ user_id: emp.id });
+    setRequestingScreenshotFor(null);
   };
 
   const submitAddTaskForEmployee = async (e) => {
@@ -467,7 +585,10 @@ const App = () => {
   };
 
   const showAuth = isSupabaseEnabled() && !user && !authLoading;
-  const showApp = !isSupabaseEnabled() || user;
+  const isBlocked = user && profile?.role === 'محذوف';
+  const showApp = (!isSupabaseEnabled() || user) && !isBlocked;
+  const activeEmployees = adminEmployees.filter(e => e.role !== 'محذوف');
+  const disabledEmployees = adminEmployees.filter(e => e.role === 'محذوف');
 
   return (
     <div className="min-h-screen bg-slate-50 text-right flex flex-col items-center p-4 font-sans" dir="rtl" style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
@@ -503,7 +624,22 @@ const App = () => {
               <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Lock className="w-4 h-4"/> كلمة المرور</label>
               <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="••••••••" />
             </div>
-            {authError && <p className="text-rose-600 text-sm font-medium">{authError}</p>}
+            {authError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-right">
+                <p className="text-rose-700 text-sm font-bold mb-3">{authError}</p>
+                {authError.includes('السيرفر') && (
+                  <div className="text-rose-600/90 text-xs space-y-2 mt-2">
+                    <p className="font-bold">افعل التالي:</p>
+                    <ol className="list-decimal list-inside space-y-1 font-medium">
+                      <li>افتح <a href="https://supabase.com/dashboard/project/_/auth/url-configuration" target="_blank" rel="noopener noreferrer" className="underline">Supabase → Authentication → URL Configuration</a></li>
+                      <li>في <strong>Site URL</strong> ضع: <code className="bg-white/80 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}</code></li>
+                      <li>في <strong>Redirect URLs</strong> أضف سطراً: <code className="bg-white/80 px-1 rounded block mt-1">{typeof window !== 'undefined' ? window.location.origin + '/**' : ''}</code></li>
+                      <li>احفظ (Save) ثم جرّب تسجيل الدخول مرة أخرى</li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
             <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition">
               {authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب'}
             </button>
@@ -514,9 +650,34 @@ const App = () => {
         </div>
       )}
 
+      {/* حساب معطّل من الإدارة */}
+      {isBlocked && (
+        <div className="w-full max-w-md mt-20 bg-white rounded-[3rem] shadow-xl border border-slate-100 p-10 text-center">
+          <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600 mx-auto mb-6"><ShieldAlert className="w-9 h-9"/></div>
+          <h2 className="text-xl font-black text-slate-800 mb-2">حسابك معطّل</h2>
+          <p className="text-slate-500 text-sm mb-6">تم تعطيل حسابك من لوحة الإدارة. تواصل مع المسؤول لإعادة التفعيل.</p>
+          <button onClick={handleLogout} className="w-full bg-slate-800 text-white py-3 rounded-2xl font-bold">تسجيل الخروج</button>
+        </div>
+      )}
+
       {/* التطبيق الرئيسي */}
       {showApp && (
         <>
+      {/* إشعار مهمة جديدة من الأدمن */}
+      {newTaskNotification && (
+        <div className="fixed top-20 left-4 right-4 max-w-md mx-auto z-50 animate-in">
+          <div className="bg-amber-500 text-white rounded-2xl shadow-xl p-4 flex items-start gap-3 border border-amber-400">
+            <ListTodo className="w-6 h-6 flex-shrink-0 mt-0.5"/>
+            <div className="flex-1 min-w-0">
+              <p className="font-black text-sm">مهمة جديدة من الإدارة</p>
+              <p className="text-sm opacity-95 mt-1 truncate">{newTaskNotification}</p>
+              <button onClick={() => setNewTaskNotification(null)} className="text-xs underline mt-2 opacity-90">إغلاق</button>
+            </div>
+            <button onClick={() => setNewTaskNotification(null)} className="p-1 rounded-lg hover:bg-white/20"><X className="w-5 h-5"/></button>
+          </div>
+        </div>
+      )}
+
       {/* AI Modal */}
       {showAiModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -550,6 +711,45 @@ const App = () => {
                 <button type="submit" className="flex-1 py-3 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700">إضافة</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* مودال: إضافة موظف (أدمن) */}
+      {showAddEmployeeModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden border border-white/20 animate-in">
+            <div className="bg-emerald-600 p-6 flex justify-between items-center text-white">
+              <span className="font-bold flex items-center gap-3 text-lg"><UserPlus className="w-6 h-6"/> إضافة موظف جديد</span>
+              <button onClick={() => { setShowAddEmployeeModal(false); setAddEmpError(''); setAddEmpSuccess(false); }} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><X className="w-5 h-5"/></button>
+            </div>
+            {addEmpSuccess ? (
+              <div className="p-6 text-center">
+                <p className="text-emerald-600 font-bold mb-4">تم إنشاء الحساب بنجاح.</p>
+                <p className="text-slate-500 text-sm mb-4">أعطِ الموظف البريد الإلكتروني وكلمة المرور المؤقتة لتسجيل الدخول.</p>
+                <button onClick={() => { setShowAddEmployeeModal(false); setAddEmpSuccess(false); }} className="w-full py-3 rounded-xl bg-slate-800 text-white font-bold">إغلاق</button>
+              </div>
+            ) : (
+              <form onSubmit={handleAddEmployee} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
+                  <input type="email" value={newEmpEmail} onChange={e => setNewEmpEmail(e.target.value)} required className="w-full bg-slate-50 p-3 rounded-xl border border-slate-100 outline-none focus:ring-2 focus:ring-emerald-200" placeholder="employee@company.com" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">اسم الموظف</label>
+                  <input type="text" value={newEmpName} onChange={e => setNewEmpName(e.target.value)} className="w-full bg-slate-50 p-3 rounded-xl border border-slate-100 outline-none focus:ring-2 focus:ring-emerald-200" placeholder="اختياري" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">كلمة مرور مؤقتة (6+ أحرف)</label>
+                  <input type="password" value={newEmpPassword} onChange={e => setNewEmpPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-3 rounded-xl border border-slate-100 outline-none focus:ring-2 focus:ring-emerald-200" placeholder="••••••••" />
+                </div>
+                {addEmpError && <p className="text-rose-600 text-sm font-medium">{addEmpError}</p>}
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => { setShowAddEmployeeModal(false); setAddEmpError(''); }} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600">إلغاء</button>
+                  <button type="submit" className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700">إنشاء الحساب</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -849,30 +1049,47 @@ const App = () => {
             </h2>
             <p className="text-slate-500 text-sm mb-6">إضافة مهام للموظفين ومتابعة نشاطهم ولقطات الشاشة</p>
 
+            {/* التحكم في مدة اللقطة التلقائية */}
+            <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+              <h3 className="text-lg font-black text-slate-800 mb-3 flex items-center gap-2">
+                <Camera className="w-5 h-5 text-indigo-600"/> مدة اللقطة التلقائية
+              </h3>
+              <p className="text-slate-500 text-sm mb-3">كل موظف يلتقط لقطة تلقائياً كل هذه المدة (بالدقائق) أثناء جلسة العمل مع تفعيل التتبع.</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <select value={adminScreenshotInterval} onChange={e => setAdminScreenshotInterval(Number(e.target.value))} className="bg-white border border-slate-200 rounded-xl px-4 py-2.5 font-bold text-slate-800">
+                  {[1, 2, 5, 10, 15, 20, 30, 45, 60].map(m => (
+                    <option key={m} value={m}>{m} دقيقة</option>
+                  ))}
+                </select>
+                <button onClick={handleSaveScreenshotInterval} className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">حفظ</button>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
                 <Users className="w-6 h-6 text-indigo-600"/> قائمة الموظفين
-                <span className="text-sm font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">({adminEmployees.length})</span>
+                <span className="text-sm font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">({activeEmployees.length})</span>
               </h3>
-              <button
-                onClick={() => {
-                  if (!supabase) return;
-                  setAdminLoading(true);
-                  supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
-                    setAdminEmployees(data || []);
-                    setAdminLoading(false);
-                  }).catch(() => setAdminLoading(false));
-                }}
-                disabled={adminLoading}
-                className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 disabled:opacity-50 flex items-center gap-2"
-              >
-                {adminLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : null} تحديث القائمة
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowAddEmployeeModal(true); setAddEmpError(''); setAddEmpSuccess(false); }}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 flex items-center gap-2"
+                >
+                  <UserPlus className="w-4 h-4"/> إضافة موظف
+                </button>
+                <button
+                  onClick={refetchAdminEmployees}
+                  disabled={adminLoading}
+                  className="px-5 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {adminLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : null} تحديث القائمة
+                </button>
+              </div>
             </div>
 
-            {adminLoading && adminEmployees.length === 0 ? (
+            {adminLoading && activeEmployees.length === 0 ? (
               <div className="flex justify-center py-16"><Loader2 className="w-10 h-10 text-indigo-600 animate-spin"/></div>
-            ) : adminEmployees.length === 0 ? (
+            ) : activeEmployees.length === 0 ? (
               <div className="text-center py-16 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-slate-500">
                 <Users className="w-16 h-16 mx-auto mb-4 opacity-50"/>
                 <p className="font-bold">لا يوجد موظفون مسجلون بعد</p>
@@ -881,22 +1098,30 @@ const App = () => {
               </div>
             ) : (
               <div className="grid gap-4">
-                {adminEmployees.map((emp) => (
+                {activeEmployees.map((emp) => (
                   <div key={emp.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100 hover:bg-white hover:shadow-lg transition-all">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600"><User className="w-6 h-6"/></div>
                       <div>
                         <p className="font-black text-slate-800 text-lg">{emp.full_name || 'بدون اسم'}</p>
-                        <p className="text-xs text-slate-500 font-medium">{emp.role || 'موظف'}</p>
+                        <p className="text-xs text-slate-500 font-medium">{emp.role === 'admin' ? 'أدمن' : (emp.role || 'موظف')}</p>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap justify-end">
                       <button onClick={() => openAddTaskForEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 flex items-center gap-2">
                         <Plus className="w-4 h-4"/> إضافة مهمة
                       </button>
                       <button onClick={() => openActivityForEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-slate-700 text-white text-sm font-bold hover:bg-slate-800 flex items-center gap-2">
                         <Activity className="w-4 h-4"/> متابعة النشاط
                       </button>
+                      <button onClick={() => handleRequestScreenshotForEmployee(emp)} disabled={requestingScreenshotFor === emp.id} className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2" title="طلب لقطة شاشة الآن من جهاز الموظف">
+                        {requestingScreenshotFor === emp.id ? <Loader2 className="w-4 h-4 animate-spin"/> : <Camera className="w-4 h-4"/>} لقطة الآن
+                      </button>
+                      {emp.role !== 'admin' && (
+                        <button onClick={() => handleDeleteEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-rose-100 text-rose-700 text-sm font-bold hover:bg-rose-200 flex items-center gap-2" title="تعطيل الحساب">
+                          <UserMinus className="w-4 h-4"/> حذف
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

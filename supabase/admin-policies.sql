@@ -20,6 +20,11 @@ DROP POLICY IF EXISTS "profiles_select_own" ON profiles;
 CREATE POLICY "profiles_select_own" ON profiles FOR SELECT
   USING (auth.uid() = id OR public.is_admin());
 
+-- الأدمن يحدّث أي ملف (لتعطيل/حذف موظف: role = 'محذوف')
+DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
+CREATE POLICY "profiles_update_own" ON profiles FOR UPDATE
+  USING (auth.uid() = id OR public.is_admin());
+
 -- الأدمن يرى كل جلسات العمل (لمتابعة الموظفين)
 DROP POLICY IF EXISTS "work_sessions_own" ON work_sessions;
 CREATE POLICY "work_sessions_own" ON work_sessions FOR ALL
