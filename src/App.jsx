@@ -18,21 +18,16 @@ import {
   Eye,
   LogOut,
   Mail,
-  Lock
+  Lock,
+  ShieldCheck,
+  Users,
+  Activity
 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
 
 // API Configuration - من الكود أو من .env (VITE_GEMINI_API_KEY)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
 const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}` : null;
-
-const defaultTasks = [
-  { id: 1, text: 'تحليل متطلبات النظام الجديد', completed: true },
-  { id: 2, text: 'اجتماع الفريق الصباحي', completed: false },
-];
-const defaultHistory = [
-  { date: '2023-10-25', start: '09:00 AM', end: '01:00 PM', duration: '4h 00m', tasks: 3 },
-];
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -46,10 +41,20 @@ const App = () => {
   const [isWorking, setIsWorking] = useState(false);
   const [startTime, setStartTime] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [tasks, setTasks] = useState(defaultTasks);
+  const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState('');
-  const [history, setHistory] = useState(defaultHistory);
+  const [history, setHistory] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // لوحة الأدمن
+  const [adminEmployees, setAdminEmployees] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminSelectedForTask, setAdminSelectedForTask] = useState(null);
+  const [adminTaskText, setAdminTaskText] = useState('');
+  const [adminSelectedForActivity, setAdminSelectedForActivity] = useState(null);
+  const [adminActivityData, setAdminActivityData] = useState({ sessions: [], tasks: [] });
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
   
   // AI States
   const [aiLoading, setAiLoading] = useState(false);
@@ -128,6 +133,16 @@ const App = () => {
     loadProfile();
   }, [user?.id]);
 
+  // تحميل قائمة الموظفين عند فتح لوحة الأدمن
+  useEffect(() => {
+    if (!supabase || !isAdmin || activeTab !== 'admin') return;
+    setAdminLoading(true);
+    supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
+      setAdminEmployees(data || []);
+      setAdminLoading(false);
+    }).catch(() => setAdminLoading(false));
+  }, [isAdmin, activeTab, supabase]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -135,7 +150,12 @@ const App = () => {
       const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
       if (error) throw error;
     } catch (err) {
-      setAuthError(err.message || 'فشل تسجيل الدخول');
+      const msg = err?.message || '';
+      if (msg.toLowerCase().includes('fetch') || err?.name === 'TypeError') {
+        setAuthError('تعذر الاتصال بالسيرفر. راجع إعدادات Supabase (Authentication → URL Configuration) أو تحقق من الاتصال.');
+      } else {
+        setAuthError(msg || 'فشل تسجيل الدخول');
+      }
     }
   };
 
@@ -148,15 +168,49 @@ const App = () => {
       setAuthError('');
       setAuthMode('login');
     } catch (err) {
-      setAuthError(err.message || 'فشل إنشاء الحساب');
+      const msg = err?.message || '';
+      if (msg.toLowerCase().includes('fetch') || err?.name === 'TypeError') {
+        setAuthError('تعذر الاتصال بالسيرفر. تحقق من: 1) إضافة رابط الموقع في Supabase (Authentication → URL Configuration) 2) المشروع غير متوقف 3) الاتصال بالإنترنت.');
+      } else {
+        setAuthError(msg || 'فشل إنشاء الحساب');
+      }
     }
+  };
+
+  const openAddTaskForEmployee = (emp) => {
+    setAdminSelectedForTask(emp);
+    setAdminTaskText('');
+    setShowAddTaskModal(true);
+  };
+
+  const submitAddTaskForEmployee = async (e) => {
+    e.preventDefault();
+    if (!adminTaskText.trim() || !adminSelectedForTask?.id || !supabase) return;
+    await supabase.from('tasks').insert({ user_id: adminSelectedForTask.id, text: adminTaskText.trim(), completed: false });
+    setShowAddTaskModal(false);
+    setAdminSelectedForTask(null);
+    setAdminTaskText('');
+  };
+
+  const openActivityForEmployee = async (emp) => {
+    setAdminSelectedForActivity(emp);
+    setShowActivityModal(true);
+    if (!supabase) return;
+    const [sessionsRes, tasksRes] = await Promise.all([
+      supabase.from('work_sessions').select('date, start_time, end_time, duration, tasks_completed').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('tasks').select('id, text, completed').eq('user_id', emp.id).order('created_at', { ascending: false })
+    ]);
+    setAdminActivityData({
+      sessions: (sessionsRes.data || []).map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') })),
+      tasks: tasksRes.data || []
+    });
   };
 
   const handleLogout = async () => {
     if (supabase) await supabase.auth.signOut();
     setUser(null);
-    setTasks(defaultTasks);
-    setHistory(defaultHistory);
+    setTasks([]);
+    setHistory([]);
   };
 
   const syncTaskToSupabase = async (task, isDelete = false) => {
@@ -178,6 +232,7 @@ const App = () => {
   // اسم العرض للموظف (من profiles أو من Auth)
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
   const displayRole = profile?.role || 'موظف';
+  const isAdmin = profile?.role === 'admin';
 
   // تحويل مدة من النص إلى ثوانٍ (يدعم "00:45:30" أو "2h 15m")
   const parseDurationToSeconds = (dur) => {
@@ -456,6 +511,63 @@ const App = () => {
         </div>
       )}
 
+      {/* مودال: إضافة مهمة لموظف (أدمن) */}
+      {showAddTaskModal && adminSelectedForTask && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden border border-white/20 animate-in">
+            <div className="bg-amber-600 p-6 flex justify-between items-center text-white">
+              <span className="font-bold flex items-center gap-3 text-lg"><Plus className="w-6 h-6"/> إضافة مهمة لـ {adminSelectedForTask.full_name}</span>
+              <button onClick={() => { setShowAddTaskModal(false); setAdminSelectedForTask(null); }} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={submitAddTaskForEmployee} className="p-6">
+              <input value={adminTaskText} onChange={e => setAdminTaskText(e.target.value)} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-amber-200 text-lg" placeholder="نص المهمة..." required />
+              <div className="flex gap-3 mt-4">
+                <button type="button" onClick={() => { setShowAddTaskModal(false); setAdminSelectedForTask(null); }} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600">إلغاء</button>
+                <button type="submit" className="flex-1 py-3 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700">إضافة</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* مودال: متابعة نشاط موظف (أدمن) */}
+      {showActivityModal && adminSelectedForActivity && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white/20 animate-in my-8 max-h-[90vh] flex flex-col">
+            <div className="bg-slate-800 p-6 flex justify-between items-center text-white">
+              <span className="font-bold flex items-center gap-3 text-lg"><Activity className="w-6 h-6"/> متابعة نشاط: {adminSelectedForActivity.full_name}</span>
+              <button onClick={() => { setShowActivityModal(false); setAdminSelectedForActivity(null); }} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <h3 className="font-black text-slate-800 mb-3 flex items-center gap-2"><ListTodo className="w-5 h-5 text-indigo-600"/> المهام ({adminActivityData.tasks.length})</h3>
+              <div className="space-y-2 mb-6 max-h-48 overflow-y-auto">
+                {adminActivityData.tasks.length === 0 ? <p className="text-slate-400 text-sm">لا توجد مهام</p> : adminActivityData.tasks.map(t => (
+                  <div key={t.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                    <CheckCircle className={`w-5 h-5 flex-shrink-0 ${t.completed ? 'text-emerald-500' : 'text-slate-300'}`}/>
+                    <span className={t.completed ? 'line-through text-slate-500' : 'text-slate-800 font-medium'}>{t.text}</span>
+                  </div>
+                ))}
+              </div>
+              <h3 className="font-black text-slate-800 mb-3 flex items-center gap-2"><History className="w-5 h-5 text-indigo-600"/> جلسات العمل ({adminActivityData.sessions.length})</h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {adminActivityData.sessions.length === 0 ? <p className="text-slate-400 text-sm">لا توجد جلسات مسجلة</p> : adminActivityData.sessions.map((h, i) => (
+                  <div key={i} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                    <div>
+                      <p className="font-bold text-slate-800">{h.dateDisplay || h.date}</p>
+                      <p className="text-xs text-slate-500 font-mono">{h.start_time} — {h.end_time}</p>
+                    </div>
+                    <div className="text-left">
+                      <p className="font-black text-indigo-600">{h.duration}</p>
+                      <p className="text-[10px] text-slate-400">{h.tasks_completed} مهام منجزة</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="w-full max-w-4xl bg-white/80 backdrop-blur-md shadow-sm rounded-3xl mb-8 p-4 flex justify-between items-center border border-white sticky top-4 z-40">
         <div className="flex items-center gap-3">
@@ -470,7 +582,8 @@ const App = () => {
             { id: 'dashboard', icon: LayoutDashboard },
             { id: 'tasks', icon: ListTodo },
             { id: 'monitor', icon: Monitor },
-            { id: 'history', icon: History }
+            { id: 'history', icon: History },
+            ...(isAdmin ? [{ id: 'admin', icon: ShieldCheck }] : [])
           ].map((item) => (
             <button 
               key={item.id}
@@ -692,14 +805,54 @@ const App = () => {
              </div>
            </div>
         )}
+
+        {activeTab === 'admin' && isAdmin && (
+          <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-slate-200/40 border border-slate-100">
+            <h2 className="text-3xl font-black mb-2 text-slate-800 flex items-center gap-4">
+              <ShieldCheck className="text-amber-600 w-8 h-8"/> لوحة الأدمن
+            </h2>
+            <p className="text-slate-500 text-sm mb-8">إضافة مهام للموظفين ومتابعة نشاطهم</p>
+            {adminLoading ? (
+              <div className="flex justify-center py-16"><Loader2 className="w-10 h-10 text-indigo-600 animate-spin"/></div>
+            ) : adminEmployees.length === 0 ? (
+              <div className="text-center py-16 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 text-slate-500">
+                <Users className="w-16 h-16 mx-auto mb-4 opacity-50"/>
+                <p className="font-bold">لا يوجد موظفون مسجلون بعد</p>
+                <p className="text-sm mt-1">سيظهرون هنا بعد إنشاء حساباتهم</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {adminEmployees.map((emp) => (
+                  <div key={emp.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-[2rem] border border-slate-100 hover:bg-white hover:shadow-lg transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600"><User className="w-6 h-6"/></div>
+                      <div>
+                        <p className="font-black text-slate-800 text-lg">{emp.full_name || 'بدون اسم'}</p>
+                        <p className="text-xs text-slate-500 font-medium">{emp.role || 'موظف'}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => openAddTaskForEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 flex items-center gap-2">
+                        <Plus className="w-4 h-4"/> إضافة مهمة
+                      </button>
+                      <button onClick={() => openActivityForEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-slate-700 text-white text-sm font-bold hover:bg-slate-800 flex items-center gap-2">
+                        <Activity className="w-4 h-4"/> متابعة النشاط
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       <footer className="w-full max-w-4xl mt-auto mb-10 p-10 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-8">
         <div className="flex items-center gap-5">
           <div className="w-14 h-14 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl rotate-3"><User className="w-8 h-8"/></div>
           <div className="text-right">
-            <p className="text-xl font-black text-slate-800 leading-none">{user?.user_metadata?.full_name || user?.email || 'أحمد محمد'}</p>
-            <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-[0.2em]">{user ? (user.email || 'موظف') : 'Part-Time Fullstack Expert'}</p>
+            <p className="text-xl font-black text-slate-800 leading-none">{user?.user_metadata?.full_name || user?.email || 'موظف'}</p>
+            <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-[0.2em]">{user?.email || '—'}</p>
           </div>
           {user && supabase && (
             <button onClick={handleLogout} className="mr-4 p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-2 font-bold text-sm" title="تسجيل الخروج">
