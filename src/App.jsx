@@ -1127,6 +1127,32 @@ const App = () => {
                 ))}
               </div>
             )}
+
+            {/* موظفون معطّلون - إعادة التفعيل */}
+            {disabledEmployees.length > 0 && (
+              <div className="mt-10 pt-8 border-t border-slate-200">
+                <h3 className="text-lg font-black text-slate-600 mb-4 flex items-center gap-2">
+                  <UserMinus className="w-5 h-5"/> موظفون معطّلون ({disabledEmployees.length})
+                </h3>
+                <p className="text-slate-500 text-sm mb-4">يمكنك إعادة تفعيل أي حساب ليتمكن من الدخول مرة أخرى.</p>
+                <div className="grid gap-3">
+                  {disabledEmployees.map((emp) => (
+                    <div key={emp.id} className="flex items-center justify-between p-4 bg-slate-100 rounded-2xl border border-slate-200 opacity-90">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-slate-300 rounded-xl flex items-center justify-center text-slate-500"><User className="w-5 h-5"/></div>
+                        <div>
+                          <p className="font-bold text-slate-600">{emp.full_name || 'بدون اسم'}</p>
+                          <p className="text-xs text-slate-400">معطّل</p>
+                        </div>
+                      </div>
+                      <button onClick={() => handleRestoreEmployee(emp)} className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 flex items-center gap-2" title="إعادة التفعيل">
+                        <UserPlus className="w-4 h-4"/> إعادة التفعيل
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
