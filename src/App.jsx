@@ -36,6 +36,7 @@ const defaultHistory = [
 
 const App = () => {
   const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null); // لوحة الموظف: الاسم والدور من جدول profiles
   const [authLoading, setAuthLoading] = useState(isSupabaseEnabled());
   const [authError, setAuthError] = useState('');
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
@@ -106,7 +107,7 @@ const App = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // تحميل المهام والأرشيف من Supabase عند وجود مستخدم
+  // تحميل المهام والأرشيف وملف الموظف من Supabase عند وجود مستخدم
   useEffect(() => {
     if (!user?.id || !supabase) return;
     const loadTasks = async () => {
@@ -115,10 +116,16 @@ const App = () => {
     };
     const loadHistory = async () => {
       const { data } = await supabase.from('work_sessions').select('date, start_time as start, end_time as end, duration, tasks_completed as tasks').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (data?.length) setHistory(data);
+      if (data?.length) setHistory(data.map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') })));
+    };
+    const loadProfile = async () => {
+      const { data } = await supabase.from('profiles').select('full_name, role').eq('id', user.id).maybeSingle();
+      if (data) setProfile(data);
+      else setProfile({ full_name: user.user_metadata?.full_name || user.email?.split('@')[0], role: 'موظف' });
     };
     loadTasks();
     loadHistory();
+    loadProfile();
   }, [user?.id]);
 
   const handleLogin = async (e) => {
@@ -167,6 +174,34 @@ const App = () => {
     const s = seconds % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
+
+  // اسم العرض للموظف (من profiles أو من Auth)
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
+  const displayRole = profile?.role || 'موظف';
+
+  // تحويل مدة من النص إلى ثوانٍ (يدعم "00:45:30" أو "2h 15m")
+  const parseDurationToSeconds = (dur) => {
+    if (!dur) return 0;
+    const asTime = /^(\d+):(\d+):(\d+)$/.exec(dur);
+    if (asTime) return parseInt(asTime[1], 10) * 3600 + parseInt(asTime[2], 10) * 60 + parseInt(asTime[3], 10);
+    const asHM = /(\d+)\s*h[^\d]*(\d*)\s*m?/i.exec(dur);
+    if (asHM) return (parseInt(asHM[1], 10) * 3600) + (parseInt(asHM[2] || '0', 10) * 60);
+    return 0;
+  };
+
+  // إجمالي ساعات الموظف من آخر 7 أيام (من السجل)
+  const getWeeklyTotalSeconds = () => {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return history.reduce((sum, h) => {
+      const d = new Date(h.date);
+      if (isNaN(d.getTime())) return sum;
+      if (d < weekAgo) return sum;
+      return sum + parseDurationToSeconds(h.duration);
+    }, 0);
+  };
+  const weeklyTotalSeconds = getWeeklyTotalSeconds();
+  const weeklyDisplay = `${Math.floor(weeklyTotalSeconds / 3600)}:${Math.floor((weeklyTotalSeconds % 3600) / 60).toString().padStart(2, '0')}`;
 
   const startScreenMonitoring = async () => {
     setPermissionError(null);
@@ -321,10 +356,13 @@ const App = () => {
       setIsWorking(true);
       setStartTime(new Date().toLocaleTimeString());
     } else {
+      const now = new Date();
+      const dateISO = now.toISOString().slice(0, 10);
       const entry = {
-        date: new Date().toLocaleDateString('ar-EG'),
+        date: dateISO,
+        dateDisplay: now.toLocaleDateString('ar-EG'),
         start: startTime,
-        end: new Date().toLocaleTimeString(),
+        end: now.toLocaleTimeString(),
         duration: formatTime(elapsedTime),
         tasks: tasks.filter(t => t.completed).length
       };
@@ -332,7 +370,7 @@ const App = () => {
       if (user?.id && supabase) {
         supabase.from('work_sessions').insert({
           user_id: user.id,
-          date: entry.date,
+          date: dateISO,
           start_time: entry.start,
           end_time: entry.end,
           duration: entry.duration,
@@ -422,7 +460,10 @@ const App = () => {
       <nav className="w-full max-w-4xl bg-white/80 backdrop-blur-md shadow-sm rounded-3xl mb-8 p-4 flex justify-between items-center border border-white sticky top-4 z-40">
         <div className="flex items-center gap-3">
           <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-100 text-white"><Clock className="w-6 h-6"/></div>
-          <h1 className="text-xl font-black text-slate-800 tracking-tight">Trackify AI</h1>
+          <div>
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">Trackify AI</h1>
+            <p className="text-xs text-slate-500 font-bold mt-0.5">لوحة {displayName}</p>
+          </div>
         </div>
         <div className="flex gap-2">
           {[
@@ -445,6 +486,24 @@ const App = () => {
       <main className="w-full max-w-4xl pb-20">
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {/* بطاقة ترحيب خاصة بكل موظف (تظهر عند تسجيل الدخول) */}
+            {user && (
+            <div className="bg-gradient-to-l from-indigo-600 to-indigo-700 p-6 rounded-[2.5rem] shadow-xl text-white flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur"><User className="w-9 h-9"/></div>
+                <div>
+                  <p className="text-white/80 text-sm font-bold">مرحباً،</p>
+                  <h2 className="text-2xl font-black">{displayName}</h2>
+                  <p className="text-white/70 text-xs font-medium mt-0.5">{displayRole} • {user.email || '—'}</p>
+                </div>
+              </div>
+              <div className="text-left hidden sm:block">
+                <p className="text-white/70 text-xs font-bold uppercase tracking-widest">لوحتك الخاصة</p>
+                <p className="text-3xl font-black">Trackify</p>
+              </div>
+            </div>
+            )}
+
             <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-slate-200/50 border border-white text-center relative overflow-hidden group">
               <div className="absolute -top-10 -left-10 w-40 h-40 bg-indigo-50 rounded-full blur-3xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
               
@@ -497,10 +556,10 @@ const App = () => {
               <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl group-hover:bg-indigo-500/30 transition-all"></div>
                 <div className="flex justify-between items-start z-10">
-                  <p className="opacity-60 text-xs font-bold uppercase tracking-widest">إجمالي الساعات الأسبوعية</p>
+                  <p className="opacity-60 text-xs font-bold uppercase tracking-widest">إجمالي ساعاتك الأسبوعية</p>
                   <Clock className="w-6 h-6 text-indigo-400" />
                 </div>
-                <h3 className="text-5xl font-black mt-6 z-10">18:45 <span className="text-lg font-medium opacity-40">ساعة</span></h3>
+                <h3 className="text-5xl font-black mt-6 z-10">{weeklyDisplay} <span className="text-lg font-medium opacity-40">ساعة</span></h3>
               </div>
               
               <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/30 flex items-center justify-between group">
@@ -620,7 +679,7 @@ const App = () => {
                        <History className="w-8 h-8" />
                      </div>
                      <div>
-                       <p className="font-black text-slate-800 text-xl">{h.date}</p>
+                       <p className="font-black text-slate-800 text-xl">{h.dateDisplay || h.date}</p>
                        <p className="text-sm text-slate-400 font-mono tracking-wider">{h.start} — {h.end}</p>
                      </div>
                    </div>
