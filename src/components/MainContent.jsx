@@ -86,6 +86,22 @@ export default function MainContent({
   sendChatLoading,
   chatInput,
   setChatInput,
+  chatGroups,
+  chatGroupMessages,
+  selectedChatGroupId,
+  onSelectChatGroup,
+  chatGroupMembersMap,
+  chatGroupLoading,
+  sendChatGroupLoading,
+  onSendChatGroupMessage,
+  showCreateGroupModal,
+  setShowCreateGroupModal,
+  createGroupName,
+  setCreateGroupName,
+  createGroupSelectedIds,
+  setCreateGroupSelectedIds,
+  createGroupLoading,
+  onCreateChatGroup,
 }) {
   return (
     <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
@@ -158,6 +174,22 @@ export default function MainContent({
           sendLoading={sendChatLoading}
           chatInput={chatInput}
           setChatInput={setChatInput}
+          chatGroups={chatGroups}
+          chatGroupMessages={chatGroupMessages}
+          selectedChatGroupId={selectedChatGroupId}
+          onSelectChatGroup={onSelectChatGroup}
+          chatGroupMembersMap={chatGroupMembersMap}
+          chatGroupLoading={chatGroupLoading}
+          sendChatGroupLoading={sendChatGroupLoading}
+          onSendChatGroupMessage={onSendChatGroupMessage}
+          showCreateGroupModal={showCreateGroupModal}
+          setShowCreateGroupModal={setShowCreateGroupModal}
+          createGroupName={createGroupName}
+          setCreateGroupName={setCreateGroupName}
+          createGroupSelectedIds={createGroupSelectedIds}
+          setCreateGroupSelectedIds={setCreateGroupSelectedIds}
+          createGroupLoading={createGroupLoading}
+          onCreateChatGroup={onCreateChatGroup}
         />
       )}
 

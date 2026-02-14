@@ -115,6 +115,17 @@ const App = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [sendChatLoading, setSendChatLoading] = useState(false);
   const [chatInput, setChatInput] = useState('');
+  // مجموعات الشات
+  const [chatGroups, setChatGroups] = useState([]);
+  const [chatGroupMessages, setChatGroupMessages] = useState([]);
+  const [selectedChatGroupId, setSelectedChatGroupId] = useState(null);
+  const [chatGroupLoading, setChatGroupLoading] = useState(false);
+  const [sendChatGroupLoading, setSendChatGroupLoading] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [createGroupName, setCreateGroupName] = useState('');
+  const [createGroupSelectedIds, setCreateGroupSelectedIds] = useState([]);
+  const [createGroupLoading, setCreateGroupLoading] = useState(false);
+  const [chatGroupMembersMap, setChatGroupMembersMap] = useState({}); // groupId -> [{ id, full_name }]
 
   // ─── القسم 5: حالة المساعد الذكي (AI) ───
   const [aiLoading, setAiLoading] = useState(false);
@@ -327,6 +338,31 @@ const App = () => {
       .then(({ data }) => setChatContacts((data || []).filter((p) => p.role !== 'محذوف').map((p) => ({ id: p.id, full_name: p.full_name || 'بدون اسم' }))));
   }, [user?.id, supabase, activeTab, isAdmin, adminEmployees]);
 
+  // تحميل مجموعات الشات التي ينتمي لها المستخدم
+  const loadChatGroups = useCallback(async () => {
+    if (!supabase || !user?.id) return;
+    const { data: members } = await supabase
+      .from('chat_group_members')
+      .select('group_id')
+      .eq('user_id', user.id);
+    if (!members?.length) {
+      setChatGroups([]);
+      return;
+    }
+    const groupIds = [...new Set(members.map((m) => m.group_id))];
+    const { data: groups } = await supabase
+      .from('chat_groups')
+      .select('id, name, created_by, created_at')
+      .in('id', groupIds)
+      .order('created_at', { ascending: false });
+    setChatGroups(groups || []);
+  }, [supabase, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !supabase || activeTab !== 'chat') return;
+    loadChatGroups();
+  }, [user?.id, supabase, activeTab, loadChatGroups]);
+
   // تحميل رسائل المحادثة مع المستخدم المحدد
   const loadChatMessages = useCallback(async () => {
     if (!supabase || !user?.id || !selectedChatUserId) return;
@@ -346,8 +382,43 @@ const App = () => {
       setChatMessages([]);
       return;
     }
+    setSelectedChatGroupId(null);
     loadChatMessages();
   }, [selectedChatUserId, loadChatMessages]);
+
+  // تحميل رسائل المجموعة وأعضاء المجموعة المحددة
+  const loadChatGroupMessages = useCallback(async () => {
+    if (!supabase || !user?.id || !selectedChatGroupId) return;
+    setChatGroupLoading(true);
+    const [msgRes, memRes] = await Promise.all([
+      supabase
+        .from('chat_group_messages')
+        .select('id, group_id, sender_id, content, created_at')
+        .eq('group_id', selectedChatGroupId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('chat_group_members')
+        .select('user_id')
+        .eq('group_id', selectedChatGroupId),
+    ]);
+    const memberIds = (memRes.data || []).map((m) => m.user_id).filter(Boolean);
+    setChatGroupMessages(msgRes.data || []);
+    if (memberIds.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', memberIds);
+      const nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || 'بدون اسم']));
+      setChatGroupMembersMap((prev) => ({ ...prev, [selectedChatGroupId]: memberIds.map((id) => ({ id, full_name: nameMap[id] || 'بدون اسم' })) }));
+    }
+    setChatGroupLoading(false);
+  }, [supabase, user?.id, selectedChatGroupId]);
+
+  useEffect(() => {
+    if (!selectedChatGroupId) {
+      setChatGroupMessages([]);
+      return;
+    }
+    setSelectedChatUserId(null);
+    loadChatGroupMessages();
+  }, [selectedChatGroupId, loadChatGroupMessages]);
 
   const sendChatMessage = useCallback(
     async (content) => {
@@ -358,6 +429,45 @@ const App = () => {
       loadChatMessages();
     },
     [supabase, user?.id, selectedChatUserId, loadChatMessages]
+  );
+
+  const sendChatGroupMessage = useCallback(
+    async (content) => {
+      if (!supabase || !user?.id || !selectedChatGroupId || !content?.trim()) return;
+      setSendChatGroupLoading(true);
+      await supabase.from('chat_group_messages').insert({ group_id: selectedChatGroupId, sender_id: user.id, content: content.trim() });
+      setSendChatGroupLoading(false);
+      loadChatGroupMessages();
+    },
+    [supabase, user?.id, selectedChatGroupId, loadChatGroupMessages]
+  );
+
+  const createChatGroup = useCallback(
+    async (name, memberIds) => {
+      if (!supabase || !user?.id || !name?.trim()) return;
+      setCreateGroupLoading(true);
+      const { data: group, error: groupErr } = await supabase
+        .from('chat_groups')
+        .insert({ name: name.trim(), created_by: user.id })
+        .select('id')
+        .single();
+      if (groupErr || !group?.id) {
+        setCreateGroupLoading(false);
+        setToastMessage?.('فشل إنشاء المجموعة');
+        return;
+      }
+      const allUserIds = [user.id, ...(memberIds || []).filter((id) => id !== user.id)];
+      await supabase.from('chat_group_members').insert(allUserIds.map((user_id) => ({ group_id: group.id, user_id })));
+      setCreateGroupLoading(false);
+      setShowCreateGroupModal(false);
+      setCreateGroupName('');
+      setCreateGroupSelectedIds([]);
+      setToastMessage?.('تم إنشاء المجموعة');
+      loadChatGroups();
+      setSelectedChatGroupId(group.id);
+      setSelectedChatUserId(null);
+    },
+    [supabase, user?.id, loadChatGroups, setToastMessage]
   );
 
   const getWorkingDaysInMonth = (year, month) => {
@@ -1463,6 +1573,22 @@ const App = () => {
         sendChatLoading={sendChatLoading}
         chatInput={chatInput}
         setChatInput={setChatInput}
+        chatGroups={chatGroups}
+        chatGroupMessages={chatGroupMessages}
+        selectedChatGroupId={selectedChatGroupId}
+        onSelectChatGroup={setSelectedChatGroupId}
+        chatGroupMembersMap={chatGroupMembersMap}
+        chatGroupLoading={chatGroupLoading}
+        sendChatGroupLoading={sendChatGroupLoading}
+        onSendChatGroupMessage={sendChatGroupMessage}
+        showCreateGroupModal={showCreateGroupModal}
+        setShowCreateGroupModal={setShowCreateGroupModal}
+        createGroupName={createGroupName}
+        setCreateGroupName={setCreateGroupName}
+        createGroupSelectedIds={createGroupSelectedIds}
+        setCreateGroupSelectedIds={setCreateGroupSelectedIds}
+        createGroupLoading={createGroupLoading}
+        onCreateChatGroup={createChatGroup}
       />
         </AppLayout>
       )}
