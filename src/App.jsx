@@ -1,17 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Swal from 'sweetalert2';
-import { ListTodo, Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
 import AuthScreen from './components/AuthScreen';
 import BlockedScreen from './components/BlockedScreen';
-import AppSidebar from './components/AppSidebar';
-import AppHeader from './components/AppHeader';
-import Footer from './components/Footer';
-import Dashboard from './components/Dashboard';
-import TasksTab from './components/TasksTab';
-import MonitorTab from './components/MonitorTab';
-import HistoryTab from './components/HistoryTab';
-import AdminPanel from './components/AdminPanel';
 import AiModal from './components/modals/AiModal';
 import ProfileModal from './components/modals/ProfileModal';
 import AddTaskModal from './components/modals/AddTaskModal';
@@ -20,6 +12,9 @@ import ActivityModal from './components/modals/ActivityModal';
 import EndSessionModal from './components/modals/EndSessionModal';
 import SalaryEditModal from './components/modals/SalaryEditModal';
 import ReauthModal from './components/modals/ReauthModal';
+import ResetPasswordForm from './components/ResetPasswordForm';
+import AppLayout from './components/AppLayout';
+import MainContent from './components/MainContent';
 
 // API Configuration - من الكود أو من .env (VITE_GEMINI_API_KEY)
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
@@ -80,6 +75,8 @@ const App = () => {
   const [employeeDailyHours, setEmployeeDailyHours] = useState({});
   const [employeeSalaryData, setEmployeeSalaryData] = useState({});
   const [adminHistory, setAdminHistory] = useState([]);
+  const [adminHistoryLoading, setAdminHistoryLoading] = useState(false);
+  const [adminHistoryError, setAdminHistoryError] = useState(null);
   const [activeUserIds, setActiveUserIds] = useState([]);
   const [showSalaryModal, setShowSalaryModal] = useState(false);
   const [salaryEditEmployee, setSalaryEditEmployee] = useState(null);
@@ -328,38 +325,54 @@ const App = () => {
   }, [isAdmin, activeTab, supabase]);
 
   // تحميل الأرشيف الزمني لجميع الموظفين (الأدمن) + مزامنة فورية
+  const loadAdminHistory = useCallback(async () => {
+    if (!supabase || !isAdmin) return;
+    setAdminHistoryLoading(true);
+    setAdminHistoryError(null);
+    const { data: rows, error } = await supabase
+      .from('work_sessions')
+      .select('id, date, start_time, end_time, duration, tasks_completed, user_id, created_at')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) {
+      setAdminHistoryError(error.message || 'فشل تحميل الأرشيف');
+      setAdminHistory([]);
+      setAdminHistoryLoading(false);
+      return;
+    }
+    if (!rows?.length) {
+      setAdminHistory([]);
+      setAdminHistoryLoading(false);
+      return;
+    }
+    const userIds = [...new Set(rows.map((r) => r.user_id))];
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+    const nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || 'بدون اسم']));
+    const list = rows.map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      date: r.date,
+      start: r.start_time,
+      end: r.end_time,
+      duration: r.duration,
+      tasks: r.tasks_completed,
+      dateDisplay: new Date(r.date + 'T12:00:00').toLocaleDateString('ar-EG'),
+      full_name: nameMap[r.user_id] || 'موظف',
+    }));
+    setAdminHistory(list);
+    setAdminHistoryLoading(false);
+  }, [supabase, isAdmin]);
+
   useEffect(() => {
     if (!supabase || !isAdmin) return;
-    const loadAdminHistory = async () => {
-      const { data: rows } = await supabase
-        .from('work_sessions')
-        .select('id, date, start_time, end_time, duration, tasks_completed, user_id, created_at')
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (!rows?.length) {
-        setAdminHistory([]);
-        return;
-      }
-      const userIds = [...new Set(rows.map((r) => r.user_id))];
-      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
-      const nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || 'بدون اسم']));
-      const list = rows.map((r) => ({
-        id: r.id,
-        user_id: r.user_id,
-        date: r.date,
-        start: r.start_time,
-        end: r.end_time,
-        duration: r.duration,
-        tasks: r.tasks_completed,
-        dateDisplay: new Date(r.date + 'T12:00:00').toLocaleDateString('ar-EG'),
-        full_name: nameMap[r.user_id] || 'موظف',
-      }));
-      setAdminHistory(list);
-    };
     loadAdminHistory();
     const loadActive = async () => {
-      const { data } = await supabase.from('active_work_sessions').select('user_id');
-      setActiveUserIds((data || []).map((r) => r.user_id));
+      const { data, error } = await supabase.from('active_work_sessions').select('user_id');
+      if (error) return;
+      const raw = data ?? [];
+      const list = Array.isArray(raw) ? raw : [raw];
+      const ids = list.map((r) => (r && r.user_id) ? String(r.user_id) : null).filter(Boolean);
+      setActiveUserIds(ids);
     };
     loadActive();
     const ch = supabase
@@ -374,7 +387,19 @@ const App = () => {
       supabase.removeChannel(ch);
       supabase.removeChannel(chActive);
     };
-  }, [supabase, isAdmin]);
+  }, [supabase, isAdmin, loadAdminHistory]);
+
+  // عند فتح تبويب السجل كأدمن: تحديث الأرشيف وقائمة النشطين
+  useEffect(() => {
+    if (activeTab !== 'history' || !isAdmin || !supabase) return;
+    loadAdminHistory();
+    supabase.from('active_work_sessions').select('user_id').then(({ data, error }) => {
+      if (error) return;
+      const raw = data ?? [];
+      const list = Array.isArray(raw) ? raw : [raw];
+      setActiveUserIds(list.map((r) => (r && r.user_id) ? String(r.user_id) : null).filter(Boolean));
+    });
+  }, [activeTab, isAdmin, supabase, loadAdminHistory]);
 
   // ─── القسم 9: Handlers (المصادقة، الأدمن، الملف الشخصي، المهام، اللقطات، العمل) ───
   const handleLogin = async (e) => {
@@ -971,33 +996,16 @@ const App = () => {
         </div>
       )}
 
-      {/* ─── شاشة تعيين كلمة مرور جديدة (بعد الضغط على رابط الاستعادة) ─── */}
       {showResetPasswordForm && user && (
-        <div className="fixed inset-0 flex items-center justify-center bg-base-200/95 backdrop-blur-sm z-50 p-4">
-          <div className="card card-soft w-full max-w-md p-8 md:p-10">
-            <h2 className="text-xl font-black text-base-content mb-2">تعيين كلمة مرور جديدة</h2>
-            <p className="text-base-content/60 text-sm mb-6">أدخل كلمة المرور الجديدة لحسابك</p>
-            {resetPasswordSuccess ? (
-              <div className="alert alert-success rounded-2xl space-y-2">
-                <p className="font-medium">تم تحديث كلمة المرور بنجاح. جاري تحميل التطبيق...</p>
-                <p className="text-sm opacity-90">Your password has been changed.</p>
-              </div>
-            ) : (
-              <form onSubmit={handleSetNewPassword} className="space-y-5">
-                <div className="form-control">
-                  <label className="label"><span className="label-text font-bold">كلمة المرور الجديدة</span></label>
-                  <input type="password" value={resetPasswordNew} onChange={e => setResetPasswordNew(e.target.value)} required minLength={6} className="input input-bordered rounded-2xl w-full" placeholder="••••••" />
-                </div>
-                <div className="form-control">
-                  <label className="label"><span className="label-text font-bold">تأكيد كلمة المرور</span></label>
-                  <input type="password" value={resetPasswordConfirm} onChange={e => setResetPasswordConfirm(e.target.value)} required minLength={6} className="input input-bordered rounded-2xl w-full" placeholder="••••••" />
-                </div>
-                {resetPasswordError && <p className="text-error text-sm font-medium">{resetPasswordError}</p>}
-                <button type="submit" className="btn btn-primary w-full rounded-2xl h-14 font-bold text-lg">حفظ كلمة المرور</button>
-              </form>
-            )}
-          </div>
-        </div>
+        <ResetPasswordForm
+          resetPasswordNew={resetPasswordNew}
+          setResetPasswordNew={setResetPasswordNew}
+          resetPasswordConfirm={resetPasswordConfirm}
+          setResetPasswordConfirm={setResetPasswordConfirm}
+          resetPasswordError={resetPasswordError}
+          resetPasswordSuccess={resetPasswordSuccess}
+          onSubmit={handleSetNewPassword}
+        />
       )}
 
       {/* ─── شاشة تسجيل الدخول / إنشاء حساب ─── */}
@@ -1030,46 +1038,23 @@ const App = () => {
       {/* ─── شاشة الحساب المعطّل ─── */}
       {isBlocked && <BlockedScreen onLogout={handleLogout} />}
 
-      {/* ─── التطبيق الرئيسي (الناف، المودالات، المحتوى) ─── */}
       {showApp && (
-        <>
-      {/* Nuxt UI Dashboard–style layout: sidebar + main area */}
-      <AppSidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        isAdmin={isAdmin}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
-      />
-      <div
-        className="flex flex-col min-h-screen transition-[margin] duration-300 ease-out"
-        style={{ marginRight: sidebarCollapsed ? 72 : 260 }}
-      >
-        <AppHeader
+        <AppLayout
           activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isAdmin={isAdmin}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
           displayName={displayName}
           avatarDisplayUrl={avatarDisplayUrl}
           user={user}
+          profile={profile}
           onOpenProfile={openProfileModal}
           onLogout={handleLogout}
-        />
-
-      {/* إشعار مهمة جديدة */}
-      {newTaskNotification && (
-        <div className="fixed top-20 left-4 right-4 max-w-md mx-auto z-50 animate-in" style={{ marginRight: sidebarCollapsed ? 88 : 276 }}>
-          <div className="bg-amber-500 text-white rounded-2xl shadow-xl p-4 flex items-start gap-3 border border-amber-400">
-            <ListTodo className="w-6 h-6 flex-shrink-0 mt-0.5"/>
-            <div className="flex-1 min-w-0">
-              <p className="font-black text-sm">مهمة جديدة من الإدارة</p>
-              <p className="text-sm opacity-95 mt-1 truncate">{newTaskNotification}</p>
-              <button onClick={() => setNewTaskNotification(null)} className="text-xs underline mt-2 opacity-90">إغلاق</button>
-            </div>
-            <button onClick={() => setNewTaskNotification(null)} className="p-1 rounded-lg hover:bg-white/20"><X className="w-5 h-5"/></button>
-          </div>
-        </div>
-      )}
-
-      {/* ─── المودالات (AI، الملف الشخصي، المهام، الموظفين، النشاط) ─── */}
+          newTaskNotification={newTaskNotification}
+          onDismissNotification={() => setNewTaskNotification(null)}
+          supabase={supabase}
+        >
       {showAiModal && <AiModal aiResponse={aiResponse} onClose={() => setShowAiModal(false)} />}
 
       {showProfileModal && (
@@ -1149,102 +1134,71 @@ const App = () => {
         />
       )}
 
-      <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            user={user}
-            displayName={displayName}
-            displayRole={displayRole}
-            avatarDisplayUrl={avatarDisplayUrl}
-            elapsedTime={elapsedTime}
-            formatTime={formatTime}
-            isWorking={isWorking}
-            handleToggleWork={handleToggleWork}
-            dailyDisplay={dailyDisplay}
-            screenshots={screenshots}
-            tasks={tasks}
-            monitoringEnabled={monitoringEnabled}
-          />
-        )}
-
-        {activeTab === 'monitor' && (
-          <MonitorTab
-            isAdmin={isAdmin}
-            isWorking={isWorking}
-            monitoringEnabled={monitoringEnabled}
-            adminGalleryLoading={adminGalleryLoading}
-            adminGalleryScreenshots={adminGalleryScreenshots}
-            screenshots={screenshots}
-            setScreenshots={setScreenshots}
-            takeScreenshot={takeScreenshot}
-          />
-        )}
-
-        {activeTab === 'tasks' && (
-          <TasksTab
-            tasks={tasks}
-            setTasks={setTasks}
-            newTask={newTask}
-            setNewTask={setNewTask}
-            user={user}
-            supabase={supabase}
-            syncTaskToSupabase={syncTaskToSupabase}
-            onAddTask={async (e) => { 
-              e.preventDefault(); 
-              if (!newTask.trim()) return; 
-              if (user?.id && supabase) { 
-                const { data } = await supabase.from('tasks').insert({ user_id: user.id, text: newTask.trim(), completed: false }).select().single(); 
-                if (data) setTasks([data, ...tasks]); 
-              } else { 
-                setTasks([{ id: Date.now(), text: newTask.trim(), completed: false }, ...tasks]); 
-              } 
-              setNewTask(''); 
-            }}
-          />
-        )}
-        
-        {activeTab === 'history' && <HistoryTab history={isAdmin ? adminHistory : history} isAdminView={!!isAdmin} activeUserIds={isAdmin ? activeUserIds : undefined} />}
-
-        {activeTab === 'admin' && isAdmin && (
-          <AdminPanel
-            adminLoading={adminLoading}
-            adminScreenshotInterval={adminScreenshotInterval}
-            setAdminScreenshotInterval={setAdminScreenshotInterval}
-            handleSaveScreenshotInterval={handleSaveScreenshotInterval}
-            activeEmployees={activeEmployees}
-            disabledEmployees={disabledEmployees}
-            employeeDailyHours={employeeDailyHours}
-            employeeSalaryData={employeeSalaryData}
-            formatSecondsToHM={formatSecondsToHM}
-            openAddTaskForEmployee={openAddTaskForEmployee}
-            openActivityForEmployee={openActivityForEmployee}
-            openSalaryEdit={openSalaryEdit}
-            handleRequestScreenshotForEmployee={handleRequestScreenshotForEmployee}
-            handleDeleteEmployee={handleDeleteEmployee}
-            handleRestoreEmployee={handleRestoreEmployee}
-            requestingScreenshotFor={requestingScreenshotFor}
-            setShowAddEmployeeModal={setShowAddEmployeeModal}
-            setAddEmpError={setAddEmpError}
-            setAddEmpSuccess={setAddEmpSuccess}
-            refetchAdminEmployees={refetchAdminEmployees}
-            aiLoading={aiLoading}
-            callGemini={callGemini}
-            adminGalleryScreenshots={adminGalleryScreenshots}
-          />
-        )}
-      </main>
-
-        <Footer
-        displayName={displayName}
+      <MainContent
+        activeTab={activeTab}
+        isAdmin={isAdmin}
         user={user}
-        profile={profile}
+        displayName={displayName}
+        displayRole={displayRole}
         avatarDisplayUrl={avatarDisplayUrl}
-        onOpenProfile={openProfileModal}
-        onLogout={handleLogout}
+        elapsedTime={elapsedTime}
+        formatTime={formatTime}
+        isWorking={isWorking}
+        handleToggleWork={handleToggleWork}
+        dailyDisplay={dailyDisplay}
+        screenshots={screenshots}
+        tasks={tasks}
+        setTasks={setTasks}
+        newTask={newTask}
+        setNewTask={setNewTask}
+        monitoringEnabled={monitoringEnabled}
         supabase={supabase}
+        syncTaskToSupabase={syncTaskToSupabase}
+        onAddTask={async (e) => {
+          e.preventDefault();
+          if (!newTask.trim()) return;
+          if (user?.id && supabase) {
+            const { data } = await supabase.from('tasks').insert({ user_id: user.id, text: newTask.trim(), completed: false }).select().single();
+            if (data) setTasks([data, ...tasks]);
+          } else {
+            setTasks([{ id: Date.now(), text: newTask.trim(), completed: false }, ...tasks]);
+          }
+          setNewTask('');
+        }}
+        adminGalleryLoading={adminGalleryLoading}
+        adminGalleryScreenshots={adminGalleryScreenshots}
+        setScreenshots={setScreenshots}
+        takeScreenshot={takeScreenshot}
+        history={history}
+        adminHistory={adminHistory}
+        activeUserIds={activeUserIds}
+        adminHistoryLoading={adminHistoryLoading}
+        adminHistoryError={adminHistoryError}
+        loadAdminHistory={loadAdminHistory}
+        adminLoading={adminLoading}
+        adminScreenshotInterval={adminScreenshotInterval}
+        setAdminScreenshotInterval={setAdminScreenshotInterval}
+        handleSaveScreenshotInterval={handleSaveScreenshotInterval}
+        activeEmployees={activeEmployees}
+        disabledEmployees={disabledEmployees}
+        employeeDailyHours={employeeDailyHours}
+        employeeSalaryData={employeeSalaryData}
+        formatSecondsToHM={formatSecondsToHM}
+        openAddTaskForEmployee={openAddTaskForEmployee}
+        openActivityForEmployee={openActivityForEmployee}
+        openSalaryEdit={openSalaryEdit}
+        handleRequestScreenshotForEmployee={handleRequestScreenshotForEmployee}
+        handleDeleteEmployee={handleDeleteEmployee}
+        handleRestoreEmployee={handleRestoreEmployee}
+        requestingScreenshotFor={requestingScreenshotFor}
+        setShowAddEmployeeModal={setShowAddEmployeeModal}
+        setAddEmpError={setAddEmpError}
+        setAddEmpSuccess={setAddEmpSuccess}
+        refetchAdminEmployees={refetchAdminEmployees}
+        aiLoading={aiLoading}
+        callGemini={callGemini}
       />
-      </div>
-        </>
+        </AppLayout>
       )}
     </div>
   );
