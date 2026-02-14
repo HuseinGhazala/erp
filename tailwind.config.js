@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Tajawal', 'sans-serif'],
+      },
       animation: {
         'in': 'fadeIn 0.3s ease-out',
       },
