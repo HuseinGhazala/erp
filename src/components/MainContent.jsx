@@ -6,6 +6,7 @@ import LeaveTab from './LeaveTab';
 import ReportsTab from './ReportsTab';
 import AdminPanel from './AdminPanel';
 import SettingsTab from './SettingsTab';
+import ChatTab from './ChatTab';
 
 export default function MainContent({
   activeTab,
@@ -76,6 +77,15 @@ export default function MainContent({
   setSidebarCollapsed,
   storageKeys,
   setToastMessage,
+  chatContacts,
+  chatMessages,
+  selectedChatUserId,
+  onSelectChatUser,
+  onSendChatMessage,
+  chatLoading,
+  sendChatLoading,
+  chatInput,
+  setChatInput,
 }) {
   return (
     <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
@@ -133,6 +143,21 @@ export default function MainContent({
           historyLoading={isAdmin ? adminHistoryLoading : userHistoryLoading}
           historyError={isAdmin ? adminHistoryError : undefined}
           onRefresh={isAdmin ? loadAdminHistory : loadUserHistory}
+        />
+      )}
+
+      {activeTab === 'chat' && (
+        <ChatTab
+          currentUserId={user?.id}
+          chatContacts={chatContacts}
+          chatMessages={chatMessages}
+          selectedContactId={selectedChatUserId}
+          onSelectContact={onSelectChatUser}
+          onSendMessage={onSendChatMessage}
+          chatLoading={chatLoading}
+          sendLoading={sendChatLoading}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
         />
       )}
 

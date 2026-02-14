@@ -108,6 +108,14 @@ const App = () => {
   const [avatarDisplayUrl, setAvatarDisplayUrl] = useState(null);
   const [profileRefresh, setProfileRefresh] = useState(0);
 
+  // ─── الشات الداخلي ───
+  const [chatContacts, setChatContacts] = useState([]);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [sendChatLoading, setSendChatLoading] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+
   // ─── القسم 5: حالة المساعد الذكي (AI) ───
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState(null);
@@ -304,6 +312,53 @@ const App = () => {
     loadUserHistory();
     loadProfile();
   }, [user?.id, profileRefresh, loadUserHistory]);
+
+  // تحميل جهات اتصال الشات (الموظفون ما عدا المستخدم الحالي)
+  useEffect(() => {
+    if (!user?.id || !supabase || activeTab !== 'chat') return;
+    if (isAdmin && adminEmployees.length) {
+      setChatContacts(adminEmployees.filter((e) => e.id !== user.id).map((e) => ({ id: e.id, full_name: e.full_name || 'بدون اسم' })));
+      return;
+    }
+    supabase
+      .from('profiles')
+      .select('id, full_name, role')
+      .neq('id', user.id)
+      .then(({ data }) => setChatContacts((data || []).filter((p) => p.role !== 'محذوف').map((p) => ({ id: p.id, full_name: p.full_name || 'بدون اسم' }))));
+  }, [user?.id, supabase, activeTab, isAdmin, adminEmployees]);
+
+  // تحميل رسائل المحادثة مع المستخدم المحدد
+  const loadChatMessages = useCallback(async () => {
+    if (!supabase || !user?.id || !selectedChatUserId) return;
+    setChatLoading(true);
+    const otherId = selectedChatUserId;
+    const { data } = await supabase
+      .from('chat_messages')
+      .select('id, sender_id, recipient_id, content, created_at')
+      .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherId}),and(sender_id.eq.${otherId},recipient_id.eq.${user.id})`)
+      .order('created_at', { ascending: true });
+    setChatMessages(data || []);
+    setChatLoading(false);
+  }, [supabase, user?.id, selectedChatUserId]);
+
+  useEffect(() => {
+    if (!selectedChatUserId) {
+      setChatMessages([]);
+      return;
+    }
+    loadChatMessages();
+  }, [selectedChatUserId, loadChatMessages]);
+
+  const sendChatMessage = useCallback(
+    async (content) => {
+      if (!supabase || !user?.id || !selectedChatUserId || !content?.trim()) return;
+      setSendChatLoading(true);
+      await supabase.from('chat_messages').insert({ sender_id: user.id, recipient_id: selectedChatUserId, content: content.trim() });
+      setSendChatLoading(false);
+      loadChatMessages();
+    },
+    [supabase, user?.id, selectedChatUserId, loadChatMessages]
+  );
 
   const getWorkingDaysInMonth = (year, month) => {
     const d = new Date(year, month - 1, 1);
@@ -1399,6 +1454,15 @@ const App = () => {
         setSidebarCollapsed={setSidebarCollapsed}
         storageKeys={STORAGE_KEYS}
         setToastMessage={setToastMessage}
+        chatContacts={chatContacts}
+        chatMessages={chatMessages}
+        selectedChatUserId={selectedChatUserId}
+        onSelectChatUser={setSelectedChatUserId}
+        onSendChatMessage={sendChatMessage}
+        chatLoading={chatLoading}
+        sendChatLoading={sendChatLoading}
+        chatInput={chatInput}
+        setChatInput={setChatInput}
       />
         </AppLayout>
       )}

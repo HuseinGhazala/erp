@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion';
-import { Clock, LayoutDashboard, ListTodo, Monitor, History, ShieldCheck, PanelLeftClose, PanelLeft, FileText, CalendarOff, Settings } from 'lucide-react';
+import { Clock, LayoutDashboard, ListTodo, Monitor, History, ShieldCheck, PanelLeftClose, PanelLeft, FileText, CalendarOff, Settings, MessageCircle } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'لوحة التحكم' },
   { id: 'tasks', icon: ListTodo, label: 'المهام' },
+  { id: 'chat', icon: MessageCircle, label: 'المحادثات' },
   { id: 'monitor', icon: Monitor, label: 'التتبع' },
   { id: 'history', icon: History, label: 'السجل' },
   { id: 'leave', icon: CalendarOff, label: 'الإجازات' },
