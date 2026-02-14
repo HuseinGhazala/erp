@@ -913,8 +913,12 @@ const App = () => {
               <h3 className="font-black text-slate-800 mb-3 mt-6 flex items-center gap-2"><Eye className="w-5 h-5 text-indigo-600"/> لقطات الشاشة ({adminActivityData.screenshots.length})</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-72 overflow-y-auto">
                 {adminActivityData.screenshots.length === 0 ? <p className="text-slate-400 text-sm col-span-full">لا توجد لقطات محفوظة</p> : adminActivityData.screenshots.map((s) => (
-                  <div key={s.id} className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50">
-                    {s.url ? <img src={s.url} alt="لقطة" className="w-full h-28 object-cover" /> : <div className="w-full h-28 bg-slate-200 flex items-center justify-center text-slate-400 text-xs">جاري التحميل</div>}
+                  <div key={s.id} className="rounded-xl overflow-hidden border border-slate-100 bg-slate-50 group/card">
+                    {s.url ? (
+                      <a href={s.url} target="_blank" rel="noopener noreferrer" className="block w-full h-28 overflow-hidden cursor-pointer hover:opacity-90 transition-opacity">
+                        <img src={s.url} alt="لقطة" className="w-full h-28 object-cover" />
+                      </a>
+                    ) : <div className="w-full h-28 bg-slate-200 flex items-center justify-center text-slate-400 text-xs">جاري التحميل</div>}
                     <div className="p-2 text-center">
                       <p className="text-xs font-bold text-slate-600">{s.time_display || '—'}</p>
                       {s.is_virtual && <span className="text-[10px] text-amber-600 font-bold">افتراضي</span>}
@@ -1083,7 +1087,11 @@ const App = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                   {adminGalleryScreenshots.map(img => (
                     <div key={img.id} className="group relative rounded-[2rem] overflow-hidden border border-slate-100 shadow-lg hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
-                      {img.url ? <img src={img.url} alt="لقطة" className="w-full h-56 object-cover" /> : <div className="w-full h-56 bg-slate-200 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-400"/></div>}
+                      {img.url ? (
+                        <a href={img.url} target="_blank" rel="noopener noreferrer" className="block w-full h-56 overflow-hidden cursor-pointer">
+                          <img src={img.url} alt="لقطة" className="w-full h-56 object-cover" />
+                        </a>
+                      ) : <div className="w-full h-56 bg-slate-200 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-400"/></div>}
                       <div className="absolute top-4 right-4 z-20 flex gap-2">
                         <span className="bg-slate-800/90 text-white text-xs px-3 py-1.5 rounded-full font-bold backdrop-blur-md">{img.full_name}</span>
                         {img.is_virtual && <span className="bg-indigo-600 text-white text-[9px] px-3 py-1 rounded-full font-black shadow-lg backdrop-blur-md border border-white/20 uppercase tracking-widest">Simulated</span>}
