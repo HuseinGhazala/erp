@@ -69,6 +69,7 @@ const App = () => {
   const [addEmpSuccess, setAddEmpSuccess] = useState(false);
   const [adminGalleryScreenshots, setAdminGalleryScreenshots] = useState([]);
   const [adminGalleryLoading, setAdminGalleryLoading] = useState(false);
+  const [employeeDailyHours, setEmployeeDailyHours] = useState({});
 
   // الملف الشخصي للموظف (تحرير الاسم، الجوال، الصورة)
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -215,19 +216,31 @@ const App = () => {
     loadProfile();
   }, [user?.id, profileRefresh]);
 
-  // تحميل قائمة الموظفين وإعداد اللقطات عند فتح لوحة الأدمن
+  // تحميل قائمة الموظفين وساعاتهم اليومية عند فتح لوحة الأدمن
   useEffect(() => {
     if (!supabase || !isAdmin || activeTab !== 'admin') return;
     setAdminLoading(true);
-    supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
-      setAdminEmployees(data || []);
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      supabase.from('profiles').select('id, full_name, role').order('full_name'),
+      supabase.from('work_sessions').select('user_id, duration').eq('date', today),
+      supabase.from('app_settings').select('value').eq('key', 'screenshot_interval_minutes').single()
+    ]).then(([profilesRes, sessionsRes, settingsRes]) => {
+      setAdminEmployees(profilesRes.data || []);
+      const sessions = sessionsRes.data || [];
+      const hoursMap = {};
+      sessions.forEach((s) => {
+        const sec = parseDurationToSeconds(s.duration);
+        hoursMap[s.user_id] = (hoursMap[s.user_id] || 0) + sec;
+      });
+      setEmployeeDailyHours(hoursMap);
+      const n = parseInt(settingsRes.data?.value, 10);
+      if (n >= 1 && n <= 120) setAdminScreenshotInterval(n);
       setAdminLoading(false);
     }).catch(() => setAdminLoading(false));
-    supabase.from('app_settings').select('value').eq('key', 'screenshot_interval_minutes').single().then(({ data }) => {
-      const n = parseInt(data?.value, 10);
-      if (n >= 1 && n <= 120) setAdminScreenshotInterval(n);
-    }).catch(() => {});
   }, [isAdmin, activeTab, supabase]);
+
+  const formatSecondsToHM = (sec) => sec == null || sec === 0 ? '0:00' : `${Math.floor(sec / 3600)}:${Math.floor((sec % 3600) / 60).toString().padStart(2, '0')}`;
 
   // تحميل لقطات جميع الموظفين لمعرض التتبع (الأدمن فقط)
   useEffect(() => {
@@ -291,8 +304,19 @@ const App = () => {
   const refetchAdminEmployees = () => {
     if (!supabase) return;
     setAdminLoading(true);
-    supabase.from('profiles').select('id, full_name, role').order('full_name').then(({ data }) => {
-      setAdminEmployees(data || []);
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      supabase.from('profiles').select('id, full_name, role').order('full_name'),
+      supabase.from('work_sessions').select('user_id, duration').eq('date', today)
+    ]).then(([profilesRes, sessionsRes]) => {
+      setAdminEmployees(profilesRes.data || []);
+      const sessions = sessionsRes.data || [];
+      const hoursMap = {};
+      sessions.forEach((s) => {
+        const sec = parseDurationToSeconds(s.duration);
+        hoursMap[s.user_id] = (hoursMap[s.user_id] || 0) + sec;
+      });
+      setEmployeeDailyHours(hoursMap);
       setAdminLoading(false);
     }).catch(() => setAdminLoading(false));
   };
@@ -446,19 +470,17 @@ const App = () => {
     return 0;
   };
 
-  // إجمالي ساعات الموظف من آخر 7 أيام (من السجل)
-  const getWeeklyTotalSeconds = () => {
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return history.reduce((sum, h) => {
-      const d = new Date(h.date);
-      if (isNaN(d.getTime())) return sum;
-      if (d < weekAgo) return sum;
-      return sum + parseDurationToSeconds(h.duration);
-    }, 0);
+  // إجمالي ساعات الموظف اليوم (من السجل + الجلسة الحالية)
+  const getDailyTotalSeconds = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const fromHistory = history
+      .filter((h) => String(h.date).slice(0, 10) === today)
+      .reduce((sum, h) => sum + parseDurationToSeconds(h.duration), 0);
+    const currentSession = isWorking ? elapsedTime : 0;
+    return fromHistory + currentSession;
   };
-  const weeklyTotalSeconds = getWeeklyTotalSeconds();
-  const weeklyDisplay = `${Math.floor(weeklyTotalSeconds / 3600)}:${Math.floor((weeklyTotalSeconds % 3600) / 60).toString().padStart(2, '0')}`;
+  const dailyTotalSeconds = getDailyTotalSeconds();
+  const dailyDisplay = `${Math.floor(dailyTotalSeconds / 3600)}:${Math.floor((dailyTotalSeconds % 3600) / 60).toString().padStart(2, '0')}`;
 
   const startScreenMonitoring = async () => {
     setPermissionError(null);
@@ -882,7 +904,10 @@ const App = () => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden border border-white/20 animate-in my-8 max-h-[90vh] flex flex-col">
             <div className="bg-slate-800 p-6 flex justify-between items-center text-white">
-              <span className="font-bold flex items-center gap-3 text-lg"><Activity className="w-6 h-6"/> متابعة نشاط: {adminSelectedForActivity.full_name}</span>
+              <div>
+                <span className="font-bold flex items-center gap-3 text-lg"><Activity className="w-6 h-6"/> متابعة نشاط: {adminSelectedForActivity.full_name}</span>
+                <p className="text-indigo-300 text-sm mt-1 font-bold">ساعات اليوم: {formatSecondsToHM(employeeDailyHours[adminSelectedForActivity.id])}</p>
+              </div>
               <button onClick={() => { setShowActivityModal(false); setAdminSelectedForActivity(null); }} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><X className="w-5 h-5"/></button>
             </div>
             <div className="p-6 overflow-y-auto flex-1">
@@ -1032,10 +1057,10 @@ const App = () => {
               <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl group-hover:bg-indigo-500/30 transition-all"></div>
                 <div className="flex justify-between items-start z-10">
-                  <p className="opacity-60 text-xs font-bold uppercase tracking-widest">إجمالي ساعاتك الأسبوعية</p>
+                  <p className="opacity-60 text-xs font-bold uppercase tracking-widest">إجمالي ساعاتك اليومية</p>
                   <Clock className="w-6 h-6 text-indigo-400" />
                 </div>
-                <h3 className="text-5xl font-black mt-6 z-10">{weeklyDisplay} <span className="text-lg font-medium opacity-40">ساعة</span></h3>
+                <h3 className="text-5xl font-black mt-6 z-10">{dailyDisplay} <span className="text-lg font-medium opacity-40">ساعة</span></h3>
               </div>
               
               <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/30 flex items-center justify-between group">
@@ -1265,7 +1290,12 @@ const App = () => {
                       <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600"><User className="w-6 h-6"/></div>
                       <div>
                         <p className="font-black text-slate-800 text-lg">{emp.full_name || 'بدون اسم'}</p>
-                        <p className="text-xs text-slate-500 font-medium">{emp.role === 'admin' ? 'أدمن' : (emp.role || 'موظف')}</p>
+                        <p className="text-xs text-slate-500 font-medium">
+                          {emp.role === 'admin' ? 'أدمن' : (emp.role || 'موظف')}
+                          {emp.role !== 'admin' && (
+                            <span className="mr-2 text-indigo-600 font-bold"> • ساعات اليوم: {formatSecondsToHM(employeeDailyHours[emp.id])}</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                     <div className="flex gap-2 flex-wrap justify-end">

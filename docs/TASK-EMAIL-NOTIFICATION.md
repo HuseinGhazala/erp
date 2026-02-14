@@ -1,6 +1,12 @@
 # إرسال إيميل للموظف عند إضافة مهمة له
 
-عندما يضيف الأدمن مهمة لأي موظف، يُرسل إيميل تلقائياً إلى بريد الموظف المسجّل في Supabase.
+عندما يضيف الأدمن مهمة لأي موظف، يُرسل إيميل تلقائياً إلى بريد الموظف المسجّل في Supabase يحتوي على نص المهمة.
+
+## ملخص الخطوات
+
+1. **Resend:** سجّل في [resend.com](https://resend.com) وأنشئ API Key
+2. **Edge Function:** نفّذ `supabase functions deploy send-task-email` ثم أضف `RESEND_API_KEY` في Secrets
+3. **Webhook:** من Database → Webhooks أنشئ webhook على جدول `tasks` (حدث Insert) يشير إلى الـ Function
 
 ## المكوّنات
 
@@ -45,7 +51,8 @@ supabase functions deploy send-task-email
    - **Events:** ✅ Insert
    - **Type:** HTTP Request
    - **URL:**  
-     `https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-task-email`
+     `https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-task-email`  
+     (مثال: `https://vlyanvwjwahsyoqyabdr.supabase.co/functions/v1/send-task-email` — استبدل `YOUR_PROJECT_REF` بالمعرّف من Project URL في Supabase)
    - **HTTP Headers:** (اختياري) إن كنت تريد تحقق:  
      `Authorization: Bearer YOUR_ANON_OR_SERVICE_ROLE_KEY`
 4. احفظ الـ Webhook.
