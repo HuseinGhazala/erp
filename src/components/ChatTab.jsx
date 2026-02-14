@@ -40,6 +40,8 @@ export default function ChatTab({
   setCreateGroupSelectedIds,
   createGroupLoading,
   onCreateChatGroup,
+  unreadDirect = {},
+  unreadGroups = {},
 }) {
   const messagesEndRef = useRef(null);
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -102,21 +104,29 @@ export default function ChatTab({
             {chatContacts.length === 0 && !chatLoading && (
               <p className="text-base-content/40 text-sm p-4 text-center">لا يوجد موظفون آخرون</p>
             )}
-            {chatContacts.map((contact) => (
-              <button
-                key={contact.id}
-                type="button"
-                onClick={() => handleSelectContact(contact.id)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right transition-colors ${
-                  selectedContactId === contact.id ? 'bg-primary text-primary-content' : 'hover:bg-base-200 text-base-content'
-                }`}
-              >
-                <div className="w-10 h-10 rounded-xl bg-base-300 flex items-center justify-center shrink-0">
-                  <User className="w-5 h-5" />
-                </div>
-                <span className="font-bold text-sm truncate flex-1">{contact.full_name || 'بدون اسم'}</span>
-              </button>
-            ))}
+            {chatContacts.map((contact) => {
+              const unread = unreadDirect[contact.id] || 0;
+              return (
+                <button
+                  key={contact.id}
+                  type="button"
+                  onClick={() => handleSelectContact(contact.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl text-right transition-colors relative ${
+                    selectedContactId === contact.id ? 'bg-primary text-primary-content' : 'hover:bg-base-200 text-base-content'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-base-300 flex items-center justify-center shrink-0">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <span className="font-bold text-sm truncate flex-1">{contact.full_name || 'بدون اسم'}</span>
+                  {unread > 0 && (
+                    <span className="badge badge-sm badge-error min-w-[1.25rem] h-5 px-1">
+                      {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           <div className="p-2 border-t border-base-200/60">
@@ -136,21 +146,29 @@ export default function ChatTab({
             {chatGroups.length === 0 && (
               <p className="text-base-content/40 text-sm p-4 text-center">لا توجد مجموعات. أنشئ مجموعة للبدء.</p>
             )}
-            {chatGroups.map((group) => (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => handleSelectGroup(group.id)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-right transition-colors ${
-                  selectedChatGroupId === group.id ? 'bg-primary text-primary-content' : 'hover:bg-base-200 text-base-content'
-                }`}
-              >
-                <div className="w-10 h-10 rounded-xl bg-base-300 flex items-center justify-center shrink-0">
-                  <Users className="w-5 h-5" />
-                </div>
-                <span className="font-bold text-sm truncate flex-1">{group.name || 'مجموعة'}</span>
-              </button>
-            ))}
+            {chatGroups.map((group) => {
+              const unread = unreadGroups[group.id] || 0;
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => handleSelectGroup(group.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl text-right transition-colors ${
+                    selectedChatGroupId === group.id ? 'bg-primary text-primary-content' : 'hover:bg-base-200 text-base-content'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-base-300 flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <span className="font-bold text-sm truncate flex-1">{group.name || 'مجموعة'}</span>
+                  {unread > 0 && (
+                    <span className="badge badge-sm badge-error min-w-[1.25rem] h-5 px-1">
+                      {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

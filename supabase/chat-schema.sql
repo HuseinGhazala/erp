@@ -43,8 +43,7 @@ CREATE POLICY "profiles_select_for_chat" ON public.profiles
     AND (role IS NULL OR role != 'محذوف')
   );
 
--- تفعيل Realtime للشات والإشعار الصوتي: من Dashboard → Database → Replication
--- فعّل جدول chat_messages و chat_group_messages (أو: ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages; ثم نفس الأمر لـ chat_group_messages)
+-- تفعيل Realtime: انظر نهاية الملف (ALTER PUBLICATION)
 
 -- ─── مجموعات الشات ───
 CREATE TABLE IF NOT EXISTS public.chat_groups (
@@ -133,3 +132,8 @@ CREATE POLICY "chat_group_messages_insert" ON public.chat_group_messages
     auth.uid() = sender_id
     AND EXISTS (SELECT 1 FROM public.chat_group_members m WHERE m.group_id = group_id AND m.user_id = auth.uid())
   );
+
+-- ─── تفعيل Realtime (للإشعارات الصوتية وعلامات غير المقروءة) ───
+-- نفّذها مرة واحدة من SQL Editor. إذا ظهر "already in publication" فتجاهل السطر.
+ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE chat_group_messages;
