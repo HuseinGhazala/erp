@@ -1,4 +1,19 @@
+import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, Mail, Lock, User, Phone, Briefcase } from 'lucide-react';
+
+const container = {
+  hidden: { opacity: 0, y: 16 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { staggerChildren: 0.05, delayChildren: 0.1 },
+  },
+};
+
+const item = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0 },
+};
 
 export default function AuthScreen({
   authMode,
@@ -21,116 +36,251 @@ export default function AuthScreen({
   onSignUp,
   onForgotPassword,
 }) {
-  // وضع "نسيت كلمة المرور": إدخال البريد فقط وإرسال الرابط
   if (authMode === 'forgot') {
     return (
-      <div className="w-full max-w-md mt-20 bg-white rounded-[3rem] shadow-xl border border-slate-100 p-10">
-        <div className="flex items-center gap-3 mb-8">
-          <div className="bg-indigo-600 p-3 rounded-2xl text-white"><Clock className="w-8 h-8"/></div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="w-full max-w-md mt-16 card-soft hover-lift p-8 md:p-10"
+      >
+        <div className="flex items-center gap-4 mb-8">
+          <div className="bg-primary text-primary-content p-3.5 rounded-2xl shadow-lg shadow-primary/25">
+            <Clock className="w-8 h-8" />
+          </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-800">Trackify AI</h1>
-            <p className="text-slate-500 text-sm">استعادة كلمة المرور</p>
+            <h1 className="text-2xl font-black text-base-content">Trackify AI</h1>
+            <p className="text-base-content/60 text-sm mt-0.5">استعادة كلمة المرور</p>
           </div>
         </div>
-        {forgotPasswordSuccess ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700 text-sm font-medium">
-              تم إرسال رابط استعادة كلمة المرور إلى بريدك. راجع صندوق الوارد (والرسائل غير المرغوبة) ثم اضغط الرابط لتعيين كلمة مرور جديدة.
-            </div>
-            <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); setForgotPasswordSuccess?.(false); }} className="w-full mt-4 text-indigo-600 font-bold hover:underline">
-              العودة لتسجيل الدخول
-            </button>
-          </div>
-        ) : (
-          <>
-            <form onSubmit={onForgotPassword} className="space-y-5">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Mail className="w-4 h-4"/> البريد الإلكتروني <span className="text-rose-500">*</span></label>
-                <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="name@company.com" />
+        <AnimatePresence mode="wait">
+          {forgotPasswordSuccess ? (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-4"
+            >
+              <div className="alert alert-success rounded-2xl text-sm">
+                تم إرسال رابط استعادة كلمة المرور إلى بريدك. راجع صندوق الوارد (والرسائل غير المرغوبة) ثم اضغط الرابط لتعيين كلمة مرور جديدة.
               </div>
-              {authError && (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-right">
-                  <p className="text-rose-700 text-sm font-bold">{authError}</p>
-                </div>
-              )}
-              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition">
-                إرسال رابط استعادة كلمة المرور
+              <button
+                type="button"
+                onClick={() => { setAuthMode('login'); setAuthError(''); setForgotPasswordSuccess?.(false); }}
+                className="btn btn-ghost w-full text-primary font-bold"
+              >
+                العودة لتسجيل الدخول
               </button>
-            </form>
-            <button type="button" onClick={() => { setAuthMode('login'); setAuthError(''); }} className="w-full mt-4 text-slate-500 text-sm font-medium hover:text-indigo-600">
-              العودة لتسجيل الدخول
-            </button>
-          </>
-        )}
-      </div>
+            </motion.div>
+          ) : (
+            <motion.div key="form" variants={container} initial="hidden" animate="show" className="space-y-5">
+              <form onSubmit={onForgotPassword} className="space-y-5">
+                <motion.div variants={item} className="form-control">
+                  <label className="label">
+                    <span className="label-text font-bold flex items-center gap-2">
+                      <Mail className="w-4 h-4" /> البريد الإلكتروني <span className="text-error">*</span>
+                    </span>
+                  </label>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={e => setAuthEmail(e.target.value)}
+                    required
+                    className="input-modern input-lg focus-ring py-4"
+                    placeholder="name@company.com"
+                  />
+                </motion.div>
+                <AnimatePresence>
+                  {authError && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="alert alert-error rounded-2xl text-sm"
+                    >
+                      {authError}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <motion.button type="submit" variants={item} className="btn btn-primary w-full rounded-2xl h-14 text-lg font-bold btn-glow">
+                  إرسال رابط استعادة كلمة المرور
+                </motion.button>
+              </form>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                className="btn btn-ghost w-full text-base-content/60 hover:text-primary"
+              >
+                العودة لتسجيل الدخول
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     );
   }
 
   return (
-    <div className="w-full max-w-md mt-20 bg-white rounded-[3rem] shadow-xl border border-slate-100 p-10">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="bg-indigo-600 p-3 rounded-2xl text-white"><Clock className="w-8 h-8"/></div>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      className="w-full max-w-md mt-16 card-soft hover-lift p-8 md:p-10"
+    >
+      <div className="flex items-center gap-4 mb-8">
+        <div className="bg-primary text-primary-content p-3.5 rounded-2xl shadow-lg shadow-primary/25">
+          <Clock className="w-8 h-8" />
+        </div>
         <div>
-          <h1 className="text-2xl font-black text-slate-800">Trackify AI</h1>
-          <p className="text-slate-500 text-sm">{authMode === 'login' ? 'تسجيل الدخول للموظفين' : 'إنشاء حساب جديد'}</p>
+          <h1 className="text-2xl font-black text-base-content">Trackify AI</h1>
+          <p className="text-base-content/60 text-sm mt-0.5">
+            {authMode === 'login' ? 'تسجيل الدخول للموظفين' : 'إنشاء حساب جديد'}
+          </p>
         </div>
       </div>
-      <form onSubmit={authMode === 'login' ? onLogin : onSignUp} className="space-y-5">
+
+      <motion.form
+        onSubmit={authMode === 'login' ? onLogin : onSignUp}
+        className="space-y-5"
+        variants={container}
+        initial="hidden"
+        animate="show"
+      >
         {authMode === 'signup' && (
           <>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><User className="w-4 h-4"/> الاسم الكامل <span className="text-rose-500">*</span></label>
-              <input type="text" value={authFullName} onChange={e => setAuthFullName(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="الاسم كما يظهر في التطبيق" />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Phone className="w-4 h-4"/> رقم الهاتف <span className="text-rose-500">*</span></label>
-              <input type="tel" value={authPhone} onChange={e => setAuthPhone(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="05xxxxxxxx" dir="ltr" />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Briefcase className="w-4 h-4"/> المسمى الوظيفي <span className="text-rose-500">*</span></label>
-              <input type="text" value={authJobTitle} onChange={e => setAuthJobTitle(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="مثال: مطوّر، محاسب، مدير مشاريع" />
-            </div>
+            <motion.div variants={item} className="form-control">
+              <label className="label">
+                <span className="label-text font-bold flex items-center gap-2">
+                  <User className="w-4 h-4" /> الاسم الكامل <span className="text-error">*</span>
+                </span>
+              </label>
+              <input
+                type="text"
+                value={authFullName}
+                onChange={e => setAuthFullName(e.target.value)}
+                required
+                className="input-modern input-lg focus-ring py-4"
+                placeholder="الاسم كما يظهر في التطبيق"
+              />
+            </motion.div>
+            <motion.div variants={item} className="form-control">
+              <label className="label">
+                <span className="label-text font-bold flex items-center gap-2">
+                  <Phone className="w-4 h-4" /> رقم الهاتف <span className="text-error">*</span>
+                </span>
+              </label>
+              <input
+                type="tel"
+                value={authPhone}
+                onChange={e => setAuthPhone(e.target.value)}
+                required
+                className="input-modern input-lg focus-ring py-4"
+                placeholder="05xxxxxxxx"
+                dir="ltr"
+              />
+            </motion.div>
+            <motion.div variants={item} className="form-control">
+              <label className="label">
+                <span className="label-text font-bold flex items-center gap-2">
+                  <Briefcase className="w-4 h-4" /> المسمى الوظيفي <span className="text-error">*</span>
+                </span>
+              </label>
+              <input
+                type="text"
+                value={authJobTitle}
+                onChange={e => setAuthJobTitle(e.target.value)}
+                required
+                className="input-modern input-lg focus-ring py-4"
+                placeholder="مثال: مطوّر، محاسب، مدير مشاريع"
+              />
+            </motion.div>
           </>
         )}
-        <div>
-          <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Mail className="w-4 h-4"/> البريد الإلكتروني <span className="text-rose-500">*</span></label>
-          <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="name@company.com" />
-        </div>
-        <div>
-          <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2"><Lock className="w-4 h-4"/> كلمة المرور <span className="text-rose-500">*</span></label>
-          <input type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="••••••" />
-        </div>
+        <motion.div variants={item} className="form-control">
+          <label className="label">
+            <span className="label-text font-bold flex items-center gap-2">
+              <Mail className="w-4 h-4" /> البريد الإلكتروني <span className="text-error">*</span>
+            </span>
+          </label>
+          <input
+            type="email"
+            value={authEmail}
+            onChange={e => setAuthEmail(e.target.value)}
+            required
+            className="input-modern input-lg focus-ring py-4"
+            placeholder="name@company.com"
+          />
+        </motion.div>
+        <motion.div variants={item} className="form-control">
+          <label className="label">
+            <span className="label-text font-bold flex items-center gap-2">
+              <Lock className="w-4 h-4" /> كلمة المرور <span className="text-error">*</span>
+            </span>
+          </label>
+          <input
+            type="password"
+            value={authPassword}
+            onChange={e => setAuthPassword(e.target.value)}
+            required
+            minLength={6}
+            className="input-modern input-lg focus-ring py-4"
+            placeholder="••••••"
+          />
+        </motion.div>
         {authMode === 'login' && (
-          <button type="button" onClick={() => { setAuthMode('forgot'); setAuthError(''); }} className="text-sm text-indigo-600 font-medium hover:underline w-full text-right">
+          <motion.button
+            type="button"
+            variants={item}
+            onClick={() => { setAuthMode('forgot'); setAuthError(''); }}
+            className="btn btn-ghost btn-sm text-primary w-full justify-end"
+          >
             نسيت كلمة المرور؟
-          </button>
+          </motion.button>
         )}
         {authMode === 'signup' && (
-          <p className="text-xs text-slate-500">الصورة الشخصية اختيارية — يمكنك إضافتها لاحقاً من الملف الشخصي</p>
+          <p className="text-xs text-base-content/50">الصورة الشخصية اختيارية — يمكنك إضافتها لاحقاً من الملف الشخصي</p>
         )}
-        {authError && (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-right">
-            <p className="text-rose-700 text-sm font-bold mb-3">{authError}</p>
-            {authError.includes('السيرفر') && (
-              <div className="text-rose-600/90 text-xs space-y-2 mt-2">
-                <p className="font-bold">افعل التالي:</p>
-                <ol className="list-decimal list-inside space-y-1 font-medium">
-                  <li>افتح <a href="https://supabase.com/dashboard/project/_/auth/url-configuration" target="_blank" rel="noopener noreferrer" className="underline">Supabase → Authentication → URL Configuration</a></li>
-                  <li>في <strong>Site URL</strong> ضع: <code className="bg-white/80 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}</code></li>
-                  <li>في <strong>Redirect URLs</strong> أضف سطراً: <code className="bg-white/80 px-1 rounded block mt-1">{typeof window !== 'undefined' ? window.location.origin + '/**' : ''}</code></li>
-                  <li>احفظ (Save) ثم جرّب تسجيل الدخول مرة أخرى</li>
-                </ol>
-              </div>
-            )}
-          </div>
-        )}
-        <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition">
+        <AnimatePresence>
+          {authError && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="alert alert-error rounded-2xl text-right"
+            >
+              <span className="text-sm font-bold">{authError}</span>
+              {authError.includes('السيرفر') && (
+                <div className="text-xs mt-2 space-y-2 opacity-95">
+                  <p className="font-bold">افعل التالي:</p>
+                  <ol className="list-decimal list-inside space-y-1 font-medium">
+                    <li>
+                      افتح{' '}
+                      <a href="https://supabase.com/dashboard/project/_/auth/url-configuration" target="_blank" rel="noopener noreferrer" className="underline">
+                        Supabase → Authentication → URL Configuration
+                      </a>
+                    </li>
+                    <li>في <strong>Site URL</strong> ضع: <kbd className="kbd kbd-sm">{typeof window !== 'undefined' ? window.location.origin : ''}</kbd></li>
+                    <li>في <strong>Redirect URLs</strong> أضف: <kbd className="kbd kbd-sm block mt-1">{typeof window !== 'undefined' ? window.location.origin + '/**' : ''}</kbd></li>
+                    <li>احفظ (Save) ثم جرّب تسجيل الدخول مرة أخرى</li>
+                  </ol>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <motion.button type="submit" variants={item} className="btn btn-primary w-full rounded-2xl h-14 text-lg font-bold btn-glow">
           {authMode === 'login' ? 'تسجيل الدخول' : 'إنشاء حساب'}
-        </button>
-      </form>
-      <button type="button" onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(''); }} className="w-full mt-4 text-slate-500 text-sm font-medium hover:text-indigo-600">
+        </motion.button>
+      </motion.form>
+
+      <motion.button
+        type="button"
+        onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(''); }}
+        className="btn btn-ghost w-full mt-5 text-base-content/60 hover:text-primary"
+      >
         {authMode === 'login' ? 'ليس لديك حساب؟ إنشاء حساب' : 'لديك حساب؟ تسجيل الدخول'}
-      </button>
-    </div>
+      </motion.button>
+    </motion.div>
   );
 }

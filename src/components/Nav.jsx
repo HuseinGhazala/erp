@@ -1,34 +1,49 @@
+import { motion } from 'framer-motion';
 import { Clock, LayoutDashboard, ListTodo, Monitor, History, ShieldCheck } from 'lucide-react';
 
 const TABS = [
-  { id: 'dashboard', icon: LayoutDashboard },
-  { id: 'tasks', icon: ListTodo },
-  { id: 'monitor', icon: Monitor },
-  { id: 'history', icon: History },
+  { id: 'dashboard', icon: LayoutDashboard, label: 'لوحة التحكم' },
+  { id: 'tasks', icon: ListTodo, label: 'المهام' },
+  { id: 'monitor', icon: Monitor, label: 'التتبع' },
+  { id: 'history', icon: History, label: 'السجل' },
 ];
 
 export default function Nav({ activeTab, setActiveTab, displayName, isAdmin }) {
-  const tabs = isAdmin ? [...TABS, { id: 'admin', icon: ShieldCheck }] : TABS;
+  const tabs = isAdmin ? [...TABS, { id: 'admin', icon: ShieldCheck, label: 'الإدارة' }] : TABS;
+
   return (
-    <nav className="w-full max-w-4xl bg-white/80 backdrop-blur-md shadow-sm rounded-3xl mb-8 p-4 flex justify-between items-center border border-white sticky top-4 z-40">
+    <motion.nav
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="w-full max-w-4xl bg-base-100/90 backdrop-blur-xl shadow-soft rounded-3xl mb-6 p-3 md:p-4 flex flex-wrap justify-between items-center gap-4 border border-base-200/60 sticky top-4 z-40 hover-lift"
+    >
       <div className="flex items-center gap-3">
-        <div className="bg-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-100 text-white"><Clock className="w-6 h-6"/></div>
+        <div className="bg-primary text-primary-content p-2.5 rounded-2xl shadow-lg shadow-primary/20">
+          <Clock className="w-6 h-6" />
+        </div>
         <div>
-          <h1 className="text-xl font-black text-slate-800 tracking-tight">Trackify AI</h1>
-          <p className="text-xs text-slate-500 font-bold mt-0.5">لوحة {displayName}</p>
+          <h1 className="text-lg md:text-xl font-black text-base-content tracking-tight">Trackify AI</h1>
+          <p className="text-xs text-base-content/50 font-bold mt-0.5">لوحة {displayName}</p>
         </div>
       </div>
-      <div className="flex gap-2">
-        {tabs.map((item) => (
+      <div className="flex gap-1.5 flex-wrap">
+        {tabs.map((tab) => (
           <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={`p-3 rounded-2xl transition-all duration-300 ${activeTab === item.id ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'text-slate-400 hover:bg-slate-100'}`}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`btn btn-sm md:btn-md gap-2 rounded-2xl transition-all duration-300 ${
+              activeTab === tab.id
+                ? 'btn-primary shadow-md shadow-primary/20'
+                : 'btn-ghost text-base-content/60 hover:text-base-content hover:bg-base-200'
+            }`}
+            title={tab.label}
           >
-            <item.icon className="w-6 h-6"/>
+            <tab.icon className="w-5 h-5 md:w-6 md:h-6 shrink-0" />
+            <span className="hidden sm:inline text-sm font-bold">{tab.label}</span>
           </button>
         ))}
       </div>
-    </nav>
+    </motion.nav>
   );
 }

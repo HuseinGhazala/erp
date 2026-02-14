@@ -1,4 +1,6 @@
-import { Eye, Camera, Monitor, Loader2, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Eye, Camera, Monitor, Loader2, Trash2, User, X } from 'lucide-react';
+import { Card, CardHeader, CardBody, Button, Modal, ModalContent, ModalHeader, ModalBody } from '@heroui/react';
 
 export default function MonitorTab({
   isAdmin,
@@ -10,86 +12,146 @@ export default function MonitorTab({
   setScreenshots,
   takeScreenshot,
 }) {
+  const [fullscreenImage, setFullscreenImage] = useState(null);
+
+  const screenshotsByEmployee = useMemo(() => {
+    if (!adminGalleryScreenshots?.length) return [];
+    const byId = {};
+    adminGalleryScreenshots.forEach((img) => {
+      const key = img.user_id || 'unknown';
+      if (!byId[key]) byId[key] = { name: img.full_name || 'موظف', list: [] };
+      byId[key].list.push(img);
+    });
+    return Object.entries(byId).map(([userId, { name, list }]) => ({ userId, name, list }));
+  }, [adminGalleryScreenshots]);
+
   return (
-    <div className="bg-white p-10 rounded-[3rem] shadow-xl shadow-slate-200/40 border border-slate-100">
-      <div className="flex justify-between items-center mb-10">
+    <div className="card card-soft bg-base-100 p-6 md:p-10 hover-lift">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div className="flex flex-col gap-1">
-          <h2 className="text-3xl font-black flex items-center gap-4 text-slate-800">
-            <Eye className="text-indigo-600 w-8 h-8"/>
+          <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3 text-base-content">
+            <Eye className="text-primary w-7 h-7 md:w-8 md:h-8" />
             معرض التتبع الرقمي
           </h2>
-          <p className="text-slate-400 text-sm font-medium">
-            {isAdmin ? 'لقطات شاشة لجميع الموظفين' : 'سجل بصري لنشاط العمل المسجل في الجلسة الحالية'}
+          <p className="text-base-content/50 text-sm font-medium mt-1">
+            {isAdmin ? 'لقطات شاشة مصنفة حسب الموظف — انقر على أي لقطة لعرضها بالكامل' : 'سجل بصري لنشاط العمل المسجل في الجلسة الحالية'}
           </p>
         </div>
         {!isAdmin && isWorking && monitoringEnabled && (
-          <button onClick={takeScreenshot} className="text-sm bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-indigo-700 shadow-xl shadow-indigo-200 transition-all font-bold">
-            <Camera className="w-5 h-5"/> التقاط صورة يدوية
+          <button type="button" className="btn btn-primary rounded-2xl font-bold gap-2" onClick={takeScreenshot}>
+            <Camera className="w-5 h-5" />
+            التقاط صورة يدوية
           </button>
         )}
       </div>
 
       {isAdmin ? (
         adminGalleryLoading ? (
-          <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-indigo-600 animate-spin"/></div>
+          <div className="flex justify-center py-24">
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+          </div>
         ) : adminGalleryScreenshots.length === 0 ? (
-          <div className="text-center py-32 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200 text-slate-400">
-            <Monitor className="w-20 h-20 mx-auto mb-6 opacity-5"/>
-            <p className="text-xl font-bold">لا توجد لقطات مسجلة من الموظفين</p>
+          <div className="text-center py-24 rounded-[2.5rem] border-2 border-dashed border-base-200 bg-base-200/40 text-base-content/60">
+            <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-bold">لا توجد لقطات مسجلة من الموظفين</p>
             <p className="text-sm mt-2 font-medium">ستظهر اللقطات هنا عندما يلتقط الموظفون صوراً من أجهزتهم</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {adminGalleryScreenshots.map(img => (
-              <div key={img.id} className="group relative rounded-[2rem] overflow-hidden border border-slate-100 shadow-lg hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
-                {img.url ? (
-                  <a href={img.url} target="_blank" rel="noopener noreferrer" className="block w-full h-56 overflow-hidden cursor-pointer">
-                    <img src={img.url} alt="لقطة" className="w-full h-56 object-cover" />
-                  </a>
-                ) : <div className="w-full h-56 bg-slate-200 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-400"/></div>}
-                <div className="absolute top-4 right-4 z-20 flex gap-2">
-                  <span className="bg-slate-800/90 text-white text-xs px-3 py-1.5 rounded-full font-bold backdrop-blur-md">{img.full_name}</span>
-                  {img.is_virtual && <span className="bg-indigo-600 text-white text-[9px] px-3 py-1 rounded-full font-black shadow-lg backdrop-blur-md border border-white/20 uppercase tracking-widest">Simulated</span>}
-                </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
-                  <div className="flex flex-col text-white">
-                    <span className="font-black text-lg">{img.time_display || '—'}</span>
-                    <span className="text-xs opacity-80">{img.full_name}</span>
+          <div className="space-y-8">
+            {screenshotsByEmployee.map(({ userId, name, list }) => (
+              <Card key={userId} className="border border-base-200 shadow-sm overflow-hidden rounded-2xl bg-base-100">
+                <CardHeader className="pb-2 border-b border-base-200 flex flex-row items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <User className="w-5 h-5 text-primary" />
                   </div>
-                </div>
-              </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-base-content">{name}</h3>
+                    <p className="text-sm text-base-content/50">لقطات هذا الموظف</p>
+                  </div>
+                  <span className="badge badge-primary badge-lg">{list.length}</span>
+                </CardHeader>
+                <CardBody className="pt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                    {list.map((img) => (
+                      <div key={img.id} className="group relative rounded-2xl overflow-hidden border border-default-200/60 shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                        {img.url ? (
+                          <button type="button" className="block w-full h-52 overflow-hidden cursor-pointer text-right focus:outline-none focus:ring-2 focus:ring-primary rounded-2xl" onClick={() => setFullscreenImage({ url: img.url, time: img.time_display, name: name })}>
+                            <img src={img.url} alt="لقطة" className="w-full h-52 object-cover" />
+                          </button>
+                        ) : (
+                          <div className="w-full h-52 bg-default-100 flex items-center justify-center">
+                            <Loader2 className="w-8 h-8 animate-spin text-default-400" />
+                          </div>
+                        )}
+                        <div className="absolute top-3 right-3 z-20 flex gap-2">
+                          {img.is_virtual && (
+                            <span className="bg-primary text-white text-[9px] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest">Simulated</span>
+                          )}
+                        </div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4 pointer-events-none">
+                          <div className="flex flex-col text-white">
+                            <span className="font-bold text-sm">{img.time_display || '—'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardBody>
+              </Card>
             ))}
           </div>
         )
       ) : screenshots.length === 0 ? (
-        <div className="text-center py-32 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200 text-slate-400">
-          <Monitor className="w-20 h-20 mx-auto mb-6 opacity-5"/>
-          <p className="text-xl font-bold">لا توجد سجلات بصرية حالياً</p>
+        <div className="text-center py-24 rounded-[2.5rem] border-2 border-dashed border-default-200 bg-default-50 text-default-500">
+          <Monitor className="w-16 h-16 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-bold">لا توجد سجلات بصرية حالياً</p>
           <p className="text-sm mt-2 font-medium">سيقوم النظام بالتقاط الصور آلياً كل 10 دقائق فور تفعيل المراقبة</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {screenshots.map(img => (
-            <div key={img.id} className="group relative rounded-[2rem] overflow-hidden border border-slate-100 shadow-lg hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
-              <img src={img.data} alt="Screen" className="w-full h-56 object-cover" />
-              <div className="absolute top-4 right-4 z-20">
-                {img.isVirtual && <span className="bg-indigo-600 text-white text-[9px] px-3 py-1 rounded-full font-black shadow-lg backdrop-blur-md border border-white/20 uppercase tracking-widest">Simulated</span>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          {screenshots.map((img) => (
+            <div key={img.id} role="button" tabIndex={0} className="group relative rounded-2xl overflow-hidden border border-default-200/60 shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary" onClick={() => setFullscreenImage({ url: img.data, time: img.time, name: null })} onKeyDown={(e) => e.key === 'Enter' && setFullscreenImage({ url: img.data, time: img.time, name: null })}>
+              <img src={img.data} alt="لقطة شاشة" className="w-full h-52 object-cover" />
+              <div className="absolute top-3 right-3 z-20">
+                {img.isVirtual && (
+                  <span className="bg-primary text-white text-[9px] px-2.5 py-1 rounded-full font-bold uppercase tracking-widest">Simulated</span>
+                )}
               </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
-                <div className="flex justify-between items-center text-white">
-                  <div className="flex flex-col">
-                    <span className="font-black text-lg">{img.time}</span>
-                    <span className="text-[10px] opacity-70 font-mono">ID: {img.id.toString().slice(-8)}</span>
-                  </div>
-                  <button onClick={() => setScreenshots(prev => prev.filter(s => s.id !== img.id))} className="bg-white/20 hover:bg-rose-500 p-2.5 rounded-xl transition-all backdrop-blur-md">
-                    <Trash2 className="w-5 h-5 text-white"/>
-                  </button>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4 pointer-events-none">
+                <div className="flex justify-between items-center text-white pointer-events-none">
+                  <span className="font-bold text-sm">{img.time}</span>
                 </div>
+              </div>
+              <div className="absolute bottom-4 left-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button isIconOnly size="sm" color="danger" variant="flat" className="min-w-unit-8 rounded-xl" onPress={(e) => { e.stopPropagation(); e.preventDefault(); setScreenshots((prev) => prev.filter((s) => s.id !== img.id)); }} aria-label="حذف">
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <Modal isOpen={!!fullscreenImage} onClose={() => setFullscreenImage(null)} size="5xl" classNames={{ base: 'max-h-[90vh]', body: 'p-0 overflow-hidden' }} scrollBehavior="inside">
+        <ModalContent>
+          <ModalHeader className="flex flex-row items-center justify-between gap-2 border-b border-default-200 pb-4">
+            <div>
+              {fullscreenImage?.name && <p className="text-default-500 text-sm font-medium">{fullscreenImage.name}</p>}
+              <p className="text-foreground font-bold">{fullscreenImage?.time || '—'}</p>
+            </div>
+            <Button isIconOnly variant="light" size="sm" onPress={() => setFullscreenImage(null)} aria-label="إغلاق">
+              <X className="w-5 h-5" />
+            </Button>
+          </ModalHeader>
+          <ModalBody className="p-0">
+            {fullscreenImage?.url && (
+              <div className="w-full min-h-[50vh] flex items-center justify-center bg-default-100">
+                <img src={fullscreenImage.url} alt="لقطة بالحجم الكامل" className="max-w-full max-h-[75vh] w-auto h-auto object-contain rounded-b-2xl" />
+              </div>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

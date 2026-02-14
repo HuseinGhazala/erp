@@ -2,14 +2,108 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  html, body {
-    font-family: 'Tajawal', sans-serif;
+/* ─── uiverse.io inspired: gradient border, glow, smooth hovers ─── */
+@layer components {
+  .card-soft {
+    @apply bg-base-100 rounded-3xl shadow-soft border border-base-200/60;
+  }
+  .btn-primary-soft {
+    @apply btn btn-primary rounded-2xl font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all duration-300 active:scale-[0.98];
+  }
+  .input-soft {
+    @apply input input-bordered rounded-2xl bg-base-200/50 border-base-300 focus:border-primary focus:outline-none w-full;
+  }
+
+  /* uiverse: gradient border card (animated border) */
+  .card-gradient-border {
+    @apply relative rounded-3xl bg-base-100 p-[2px] overflow-hidden;
+    background: linear-gradient(135deg, #4f46e5, #06b6d4, #10b981, #4f46e5);
+    background-size: 300% 300%;
+    animation: gradient-shift 6s ease infinite;
+  }
+  .card-gradient-border > .card-inner {
+    @apply rounded-[calc(1.5rem-2px)] bg-base-100 p-6 md:p-8 h-full;
+  }
+
+  /* uiverse: soft glow button */
+  .btn-glow {
+    @apply relative rounded-2xl font-bold transition-all duration-300;
+    box-shadow: 0 0 20px -5px rgb(79 70 229 / 0.35);
+  }
+  .btn-glow:hover {
+    box-shadow: 0 0 28px -4px rgb(79 70 229 / 0.5);
+  }
+
+  /* HeroUI / Untitled UI inspired: clean focus ring */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-base-100;
+  }
+  .input-modern {
+    @apply w-full rounded-2xl border border-base-300 bg-base-100 px-4 py-3 text-base-content;
+    @apply transition-colors duration-200;
+    @apply placeholder:text-base-content/40;
+    @apply focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none;
   }
 }
 
 @layer utilities {
   .animate-in {
-    animation: fadeIn 0.3s ease-out;
+    animation: fadeIn 0.35s ease-out forwards;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out forwards;
+  }
+  /* uiverse-style hover lift */
+  .hover-lift {
+    @apply transition-all duration-300;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px -12px rgb(0 0 0 / 0.12);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* uiverse: gradient border animation */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    font-family: 'Tajawal', sans-serif;
+    @apply text-base-content antialiased;
+  }
+  [dir="rtl"] .focus\:ring-2:focus {
+    @apply ring-offset-right;
   }
 }

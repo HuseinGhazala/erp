@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 import { Lock, X, Loader2 } from 'lucide-react';
 
 export default function ReauthModal({
@@ -31,41 +32,54 @@ export default function ReauthModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden border border-white/20 animate-in">
-        <div className="bg-amber-500/90 p-6 flex justify-between items-center text-white">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="card bg-base-100 rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden border border-base-200"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="bg-warning/90 text-warning-content p-6 flex justify-between items-center">
           <span className="font-bold flex items-center gap-3 text-lg">
             <Lock className="w-6 h-6" /> {title}
           </span>
-          <button type="button" onClick={onClose} className="bg-white/20 p-2 rounded-full hover:bg-white/30" aria-label="إغلاق">
+          <button type="button" onClick={onClose} className="btn btn-ghost btn-circle btn-sm text-warning-content hover:bg-white/20" aria-label="إغلاق">
             <X className="w-5 h-5" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          <p className="text-slate-600 text-sm">{message}</p>
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">كلمة المرور الحالية</label>
+          <p className="text-base-content/70 text-sm">{message}</p>
+          <div className="form-control">
+            <label className="label"><span className="label-text font-bold">كلمة المرور الحالية</span></label>
             <input
               type="password"
               value={password}
               onChange={e => { setPassword(e.target.value); setError(''); }}
               placeholder="••••••"
               autoComplete="current-password"
-              className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-amber-200"
+              className="input input-bordered rounded-2xl w-full bg-base-200/50"
               disabled={loading}
             />
           </div>
-          {error && <p className="text-rose-600 text-sm font-medium">{error}</p>}
+          {error && <p className="text-error text-sm font-medium">{error}</p>}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600">
+            <button type="button" onClick={onClose} className="btn btn-ghost flex-1 rounded-xl font-bold">
               إلغاء
             </button>
-            <button type="submit" disabled={loading} className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-bold hover:bg-amber-600 disabled:opacity-70 flex items-center justify-center gap-2">
+            <button type="submit" disabled={loading} className="btn btn-warning flex-1 rounded-xl font-bold gap-2">
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null} تأكيد
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

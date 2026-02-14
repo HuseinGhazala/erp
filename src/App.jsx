@@ -4,7 +4,8 @@ import { ListTodo, Loader2, X } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
 import AuthScreen from './components/AuthScreen';
 import BlockedScreen from './components/BlockedScreen';
-import Nav from './components/Nav';
+import AppSidebar from './components/AppSidebar';
+import AppHeader from './components/AppHeader';
 import Footer from './components/Footer';
 import Dashboard from './components/Dashboard';
 import TasksTab from './components/TasksTab';
@@ -44,6 +45,7 @@ const App = () => {
   const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
   const [showReauthModal, setShowReauthModal] = useState(false);
   const [pendingActionAfterReauth, setPendingActionAfterReauth] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // ─── القسم 2: حالة العمل والتايمر والمهام والأرشيف ───
   const [isWorking, setIsWorking] = useState(false);
@@ -77,6 +79,8 @@ const App = () => {
   const [adminGalleryLoading, setAdminGalleryLoading] = useState(false);
   const [employeeDailyHours, setEmployeeDailyHours] = useState({});
   const [employeeSalaryData, setEmployeeSalaryData] = useState({});
+  const [adminHistory, setAdminHistory] = useState([]);
+  const [activeUserIds, setActiveUserIds] = useState([]);
   const [showSalaryModal, setShowSalaryModal] = useState(false);
   const [salaryEditEmployee, setSalaryEditEmployee] = useState(null);
   const [salaryEditValue, setSalaryEditValue] = useState('');
@@ -322,6 +326,55 @@ const App = () => {
     };
     loadAdminGallery();
   }, [isAdmin, activeTab, supabase]);
+
+  // تحميل الأرشيف الزمني لجميع الموظفين (الأدمن) + مزامنة فورية
+  useEffect(() => {
+    if (!supabase || !isAdmin) return;
+    const loadAdminHistory = async () => {
+      const { data: rows } = await supabase
+        .from('work_sessions')
+        .select('id, date, start_time, end_time, duration, tasks_completed, user_id, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (!rows?.length) {
+        setAdminHistory([]);
+        return;
+      }
+      const userIds = [...new Set(rows.map((r) => r.user_id))];
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      const nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || 'بدون اسم']));
+      const list = rows.map((r) => ({
+        id: r.id,
+        user_id: r.user_id,
+        date: r.date,
+        start: r.start_time,
+        end: r.end_time,
+        duration: r.duration,
+        tasks: r.tasks_completed,
+        dateDisplay: new Date(r.date + 'T12:00:00').toLocaleDateString('ar-EG'),
+        full_name: nameMap[r.user_id] || 'موظف',
+      }));
+      setAdminHistory(list);
+    };
+    loadAdminHistory();
+    const loadActive = async () => {
+      const { data } = await supabase.from('active_work_sessions').select('user_id');
+      setActiveUserIds((data || []).map((r) => r.user_id));
+    };
+    loadActive();
+    const ch = supabase
+      .channel('work_sessions_admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_sessions' }, () => loadAdminHistory());
+    ch.subscribe();
+    const chActive = supabase
+      .channel('active_work_sessions_admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'active_work_sessions' }, () => loadActive());
+    chActive.subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+      supabase.removeChannel(chActive);
+    };
+  }, [supabase, isAdmin]);
 
   // ─── القسم 9: Handlers (المصادقة، الأدمن، الملف الشخصي، المهام، اللقطات، العمل) ───
   const handleLogin = async (e) => {
@@ -737,6 +790,9 @@ const App = () => {
       };
       setIsWorking(true);
       setStartTime(new Date().toLocaleTimeString());
+      if (user?.id && supabase) {
+        supabase.from('active_work_sessions').upsert({ user_id: user.id }, { onConflict: 'user_id' }).then(() => {});
+      }
     } catch (err) {
       console.error("Screen share:", err);
       const name = err?.name || err?.message || "";
@@ -780,7 +836,8 @@ const App = () => {
     canvasRef.current.height = 720;
     context.drawImage(videoRef.current, 0, 0, 1280, 720);
     
-    const timeStr = new Date().toLocaleTimeString('ar-EG');
+    const now = new Date();
+    const timeStr = now.toLocaleDateString('ar-EG') + ' ' + now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const imageData = canvasRef.current.toDataURL('image/png');
     setScreenshots(prev => [{
       id: Date.now(),
@@ -851,6 +908,7 @@ const App = () => {
     };
     setHistory([entry, ...history]);
     if (user?.id && supabase) {
+      supabase.from('active_work_sessions').delete().eq('user_id', user.id).then(() => {});
       supabase.from('work_sessions').insert({
         user_id: user.id,
         date: dateISO,
@@ -899,43 +957,43 @@ const App = () => {
 
   // ─── القسم 10: JSX ───
   return (
-    <div className="min-h-screen bg-slate-50 text-right flex flex-col items-center p-4 font-sans" dir="rtl" style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
+    <div className="min-h-screen bg-base-200 text-right flex flex-col items-center p-4 font-sans" dir="rtl">
       <video ref={videoRef} autoPlay className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 
       {/* ─── شاشة تحميل المصادقة ─── */}
       {authLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-slate-50 z-50">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
-            <p className="text-slate-500 font-medium">جاري التحقق...</p>
+        <div className="fixed inset-0 flex items-center justify-center bg-base-200/95 backdrop-blur-sm z-50">
+          <div className="flex flex-col items-center gap-5">
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <p className="text-base-content/70 font-bold">جاري التحقق...</p>
           </div>
         </div>
       )}
 
       {/* ─── شاشة تعيين كلمة مرور جديدة (بعد الضغط على رابط الاستعادة) ─── */}
       {showResetPasswordForm && user && (
-        <div className="fixed inset-0 flex items-center justify-center bg-slate-50 z-50">
-          <div className="w-full max-w-md bg-white rounded-[3rem] shadow-xl border border-slate-100 p-10">
-            <h2 className="text-xl font-black text-slate-800 mb-2">تعيين كلمة مرور جديدة</h2>
-            <p className="text-slate-500 text-sm mb-6">أدخل كلمة المرور الجديدة لحسابك</p>
+        <div className="fixed inset-0 flex items-center justify-center bg-base-200/95 backdrop-blur-sm z-50 p-4">
+          <div className="card card-soft w-full max-w-md p-8 md:p-10">
+            <h2 className="text-xl font-black text-base-content mb-2">تعيين كلمة مرور جديدة</h2>
+            <p className="text-base-content/60 text-sm mb-6">أدخل كلمة المرور الجديدة لحسابك</p>
             {resetPasswordSuccess ? (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700 space-y-2">
+              <div className="alert alert-success rounded-2xl space-y-2">
                 <p className="font-medium">تم تحديث كلمة المرور بنجاح. جاري تحميل التطبيق...</p>
                 <p className="text-sm opacity-90">Your password has been changed.</p>
               </div>
             ) : (
               <form onSubmit={handleSetNewPassword} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">كلمة المرور الجديدة</label>
-                  <input type="password" value={resetPasswordNew} onChange={e => setResetPasswordNew(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="••••••" />
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-bold">كلمة المرور الجديدة</span></label>
+                  <input type="password" value={resetPasswordNew} onChange={e => setResetPasswordNew(e.target.value)} required minLength={6} className="input input-bordered rounded-2xl w-full" placeholder="••••••" />
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">تأكيد كلمة المرور</label>
-                  <input type="password" value={resetPasswordConfirm} onChange={e => setResetPasswordConfirm(e.target.value)} required minLength={6} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="••••••" />
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-bold">تأكيد كلمة المرور</span></label>
+                  <input type="password" value={resetPasswordConfirm} onChange={e => setResetPasswordConfirm(e.target.value)} required minLength={6} className="input input-bordered rounded-2xl w-full" placeholder="••••••" />
                 </div>
-                {resetPasswordError && <p className="text-rose-600 text-sm font-medium">{resetPasswordError}</p>}
-                <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition">حفظ كلمة المرور</button>
+                {resetPasswordError && <p className="text-error text-sm font-medium">{resetPasswordError}</p>}
+                <button type="submit" className="btn btn-primary w-full rounded-2xl h-14 font-bold text-lg">حفظ كلمة المرور</button>
               </form>
             )}
           </div>
@@ -944,7 +1002,8 @@ const App = () => {
 
       {/* ─── شاشة تسجيل الدخول / إنشاء حساب ─── */}
       {showAuth && (
-        <AuthScreen
+        <div className="fixed inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-b from-base-200 via-primary/5 to-base-200 overflow-auto">
+          <AuthScreen
           authMode={authMode}
           authEmail={authEmail}
           authPassword={authPassword}
@@ -965,6 +1024,7 @@ const App = () => {
           onSignUp={handleSignUp}
           onForgotPassword={handleForgotPassword}
         />
+        </div>
       )}
 
       {/* ─── شاشة الحساب المعطّل ─── */}
@@ -973,9 +1033,30 @@ const App = () => {
       {/* ─── التطبيق الرئيسي (الناف، المودالات، المحتوى) ─── */}
       {showApp && (
         <>
+      {/* Nuxt UI Dashboard–style layout: sidebar + main area */}
+      <AppSidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isAdmin={isAdmin}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+      />
+      <div
+        className="flex flex-col min-h-screen transition-[margin] duration-300 ease-out"
+        style={{ marginRight: sidebarCollapsed ? 72 : 260 }}
+      >
+        <AppHeader
+          activeTab={activeTab}
+          displayName={displayName}
+          avatarDisplayUrl={avatarDisplayUrl}
+          user={user}
+          onOpenProfile={openProfileModal}
+          onLogout={handleLogout}
+        />
+
       {/* إشعار مهمة جديدة */}
       {newTaskNotification && (
-        <div className="fixed top-20 left-4 right-4 max-w-md mx-auto z-50 animate-in">
+        <div className="fixed top-20 left-4 right-4 max-w-md mx-auto z-50 animate-in" style={{ marginRight: sidebarCollapsed ? 88 : 276 }}>
           <div className="bg-amber-500 text-white rounded-2xl shadow-xl p-4 flex items-start gap-3 border border-amber-400">
             <ListTodo className="w-6 h-6 flex-shrink-0 mt-0.5"/>
             <div className="flex-1 min-w-0">
@@ -1068,9 +1149,7 @@ const App = () => {
         />
       )}
 
-      <Nav activeTab={activeTab} setActiveTab={setActiveTab} displayName={displayName} isAdmin={isAdmin} />
-
-      <main className="w-full max-w-4xl pb-20">
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
         {activeTab === 'dashboard' && (
           <Dashboard
             user={user}
@@ -1084,8 +1163,6 @@ const App = () => {
             dailyDisplay={dailyDisplay}
             screenshots={screenshots}
             tasks={tasks}
-            aiLoading={aiLoading}
-            callGemini={callGemini}
             monitoringEnabled={monitoringEnabled}
           />
         )}
@@ -1126,7 +1203,7 @@ const App = () => {
           />
         )}
         
-        {activeTab === 'history' && <HistoryTab history={history} />}
+        {activeTab === 'history' && <HistoryTab history={isAdmin ? adminHistory : history} isAdminView={!!isAdmin} activeUserIds={isAdmin ? activeUserIds : undefined} />}
 
         {activeTab === 'admin' && isAdmin && (
           <AdminPanel
@@ -1150,11 +1227,14 @@ const App = () => {
             setAddEmpError={setAddEmpError}
             setAddEmpSuccess={setAddEmpSuccess}
             refetchAdminEmployees={refetchAdminEmployees}
+            aiLoading={aiLoading}
+            callGemini={callGemini}
+            adminGalleryScreenshots={adminGalleryScreenshots}
           />
         )}
       </main>
 
-      <Footer
+        <Footer
         displayName={displayName}
         user={user}
         profile={profile}
@@ -1163,6 +1243,7 @@ const App = () => {
         onLogout={handleLogout}
         supabase={supabase}
       />
+      </div>
         </>
       )}
     </div>
