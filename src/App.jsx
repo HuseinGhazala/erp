@@ -17,9 +17,10 @@ import ResetPasswordForm from './components/ResetPasswordForm';
 import AppLayout from './components/AppLayout';
 import MainContent from './components/MainContent';
 
-// API Configuration - من الكود أو من .env (VITE_GEMINI_API_KEY)
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
-const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}` : null;
+// API Configuration - من .env (VITE_GEMINI_API_KEY). استخدم موديلاً مستقراً مثل gemini-2.0-flash
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}` : null;
 
 const STORAGE_KEYS = { THEME: 'trackify_theme', SIDEBAR: 'trackify_sidebar_collapsed' };
 
@@ -1209,42 +1210,49 @@ const App = () => {
     } catch (_) {}
   };
 
-  // استدعاء Gemini وإرجاع النص فقط (للاستخدام في الاقتراحات أو التحليل الأسبوعي)
+  // استدعاء Gemini وإرجاع النص أو رسالة خطأ (للاستخدام في الاقتراحات أو التحليل)
   const getGeminiResponse = useCallback(async (prompt) => {
-    if (!GEMINI_URL) return null;
+    if (!GEMINI_URL) return { text: null, error: 'لم يتم ضبط مفتاح Gemini (VITE_GEMINI_API_KEY في .env)' };
     let delay = 1000;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 3; i++) {
       try {
         const response = await fetch(GEMINI_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: "أنت مساعد إداري ذكي. ردودك احترافية وبالعربية." }] }
+            systemInstruction: { parts: [{ text: 'أنت مساعد إداري ذكي. ردودك احترافية وبالعربية.' }] }
           })
         });
-        if (!response.ok) throw new Error();
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } catch (_) {
-        if (i === 4) return null;
-        await new Promise(r => setTimeout(r, delay));
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const msg = data?.error?.message || data?.error?.status || `خطأ من الخادم: ${response.status}`;
+          return { text: null, error: msg };
+        }
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text) return { text, error: null };
+        const blockReason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
+        return { text: null, error: blockReason ? `لم يُرجع النموذج نصاً (${blockReason}).` : 'لم يُرجع النموذج رداً.' };
+      } catch (e) {
+        const errMsg = e?.message || 'خطأ في الشبكة أو الاتصال.';
+        if (i === 2) return { text: null, error: errMsg };
+        await new Promise((r) => setTimeout(r, delay));
         delay *= 2;
       }
     }
-    return null;
+    return { text: null, error: 'عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.' };
   }, []);
 
   const callGemini = useCallback(async (prompt) => {
     if (!GEMINI_URL) {
-      setAiResponse("لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env");
+      setAiResponse('لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env ثم أعد تشغيل المشروع.');
       setShowAiModal(true);
       return;
     }
     setAiLoading(true);
     try {
-      const text = await getGeminiResponse(prompt);
-      setAiResponse(text || "عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.");
+      const { text, error } = await getGeminiResponse(prompt);
+      setAiResponse(text || error || 'عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.');
       setShowAiModal(true);
     } finally {
       setAiLoading(false);
@@ -1290,7 +1298,7 @@ const App = () => {
 
   // اقتراح مهام لموظف حسب المسمى (لنموذج إضافة مهمة)
   const suggestTasksForEmployee = useCallback(async (emp) => {
-    const text = await getGeminiResponse(
+    const { text } = await getGeminiResponse(
       `اقترح 5 مهام عمل مناسبة لموظف بمسمى وظيفي: ${emp?.job_title || 'موظف'}. أعد القائمة فقط: سطر واحد لكل مهمة، تبدأ برقم ثم نقطة ثم نص المهمة، بدون عناوين أو شرح إضافي.`
     );
     if (!text) return [];
