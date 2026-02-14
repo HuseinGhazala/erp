@@ -229,6 +229,31 @@ const App = () => {
     }).catch(() => {});
   }, [isAdmin, activeTab, supabase]);
 
+  // تحميل لقطات جميع الموظفين لمعرض التتبع (الأدمن فقط)
+  useEffect(() => {
+    if (!supabase || !isAdmin || activeTab !== 'monitor') return;
+    setAdminGalleryLoading(true);
+    const loadAdminGallery = async () => {
+      const { data: rows } = await supabase.from('screenshots').select('id, file_path, time_display, is_virtual, user_id, created_at').order('created_at', { ascending: false }).limit(100);
+      const list = rows || [];
+      if (list.length === 0) {
+        setAdminGalleryScreenshots([]);
+        setAdminGalleryLoading(false);
+        return;
+      }
+      const userIds = [...new Set(list.map(r => r.user_id))];
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      const nameMap = Object.fromEntries((profiles || []).map(p => [p.id, p.full_name || 'بدون اسم']));
+      const withUrls = list.map((row) => {
+        const { data } = supabase.storage.from('screenshots').getPublicUrl(row.file_path);
+        return { ...row, url: data?.publicUrl || null, full_name: nameMap[row.user_id] || 'موظف' };
+      });
+      setAdminGalleryScreenshots(withUrls);
+      setAdminGalleryLoading(false);
+    };
+    loadAdminGallery();
+  }, [isAdmin, activeTab, supabase]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -381,13 +406,10 @@ const App = () => {
     const sessions = (sessionsRes.data || []).map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') }));
     const tasks = tasksRes.data || [];
     const screenshotRows = screensRes.data || [];
-    const screenshotsWithUrls = [];
-    if (screenshotRows.length > 0) {
-      const paths = screenshotRows.map(r => r.file_path);
-      const { data: signedList } = await supabase.storage.from('screenshots').createSignedUrls(paths, 3600);
-      const urls = (signedList || []).map((s, i) => s?.signedUrl || null);
-      screenshotRows.forEach((row, i) => screenshotsWithUrls.push({ ...row, url: urls[i] || null }));
-    }
+    const screenshotsWithUrls = screenshotRows.map((row) => {
+      const { data } = supabase.storage.from('screenshots').getPublicUrl(row.file_path);
+      return { ...row, url: data?.publicUrl || null };
+    });
     setAdminActivityData({ sessions, tasks, screenshots: screenshotsWithUrls });
   };
 
@@ -1037,16 +1059,46 @@ const App = () => {
                   <Eye className="text-indigo-600 w-8 h-8"/> 
                   معرض التتبع الرقمي
                 </h2>
-                <p className="text-slate-400 text-sm font-medium">سجل بصري لنشاط العمل المسجل في الجلسة الحالية</p>
+                <p className="text-slate-400 text-sm font-medium">
+                  {isAdmin ? 'لقطات شاشة لجميع الموظفين' : 'سجل بصري لنشاط العمل المسجل في الجلسة الحالية'}
+                </p>
               </div>
-              {isWorking && monitoringEnabled && (
+              {!isAdmin && isWorking && monitoringEnabled && (
                 <button onClick={takeScreenshot} className="text-sm bg-indigo-600 text-white px-8 py-4 rounded-2xl flex items-center gap-2 hover:bg-indigo-700 shadow-xl shadow-indigo-200 transition-all font-bold">
                   <Camera className="w-5 h-5"/> التقاط صورة يدوية
                 </button>
               )}
             </div>
 
-            {screenshots.length === 0 ? (
+            {isAdmin ? (
+              adminGalleryLoading ? (
+                <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-indigo-600 animate-spin"/></div>
+              ) : adminGalleryScreenshots.length === 0 ? (
+                <div className="text-center py-32 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200 text-slate-400">
+                  <Monitor className="w-20 h-20 mx-auto mb-6 opacity-5"/>
+                  <p className="text-xl font-bold">لا توجد لقطات مسجلة من الموظفين</p>
+                  <p className="text-sm mt-2 font-medium">ستظهر اللقطات هنا عندما يلتقط الموظفون صوراً من أجهزتهم</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {adminGalleryScreenshots.map(img => (
+                    <div key={img.id} className="group relative rounded-[2rem] overflow-hidden border border-slate-100 shadow-lg hover:shadow-2xl transition-all duration-500 hover:-translate-y-2">
+                      {img.url ? <img src={img.url} alt="لقطة" className="w-full h-56 object-cover" /> : <div className="w-full h-56 bg-slate-200 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-slate-400"/></div>}
+                      <div className="absolute top-4 right-4 z-20 flex gap-2">
+                        <span className="bg-slate-800/90 text-white text-xs px-3 py-1.5 rounded-full font-bold backdrop-blur-md">{img.full_name}</span>
+                        {img.is_virtual && <span className="bg-indigo-600 text-white text-[9px] px-3 py-1 rounded-full font-black shadow-lg backdrop-blur-md border border-white/20 uppercase tracking-widest">Simulated</span>}
+                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
+                        <div className="flex flex-col text-white">
+                          <span className="font-black text-lg">{img.time_display || '—'}</span>
+                          <span className="text-xs opacity-80">{img.full_name}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : screenshots.length === 0 ? (
               <div className="text-center py-32 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200 text-slate-400">
                 <Monitor className="w-20 h-20 mx-auto mb-6 opacity-5"/>
                 <p className="text-xl font-bold">لا توجد سجلات بصرية حالياً</p>

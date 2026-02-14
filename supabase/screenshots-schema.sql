@@ -1,5 +1,5 @@
 -- لقطات الشاشة: جدول + سياسات التخزين
--- 1) من لوحة Supabase: Storage → New bucket → الاسم: screenshots → Private → Create
+-- 1) من لوحة Supabase: Storage → New bucket → الاسم: screenshots → **Public** → Create (يجب عام لعرض اللقطات)
 -- 2) ثم نفّذ هذا الملف من SQL Editor
 
 -- جدول سجل اللقطات
@@ -23,7 +23,7 @@ CREATE POLICY "screenshots_own" ON screenshots FOR ALL
   WITH CHECK (auth.uid() = user_id OR public.is_admin());
 
 -- سياسات التخزين: الموظف يرفع إلى مجلده فقط، والأدمن يقرأ كل المجلدات
--- (أنشئ الـ bucket من Dashboard: Storage → New bucket → اسم: screenshots → Private)
+-- (أنشئ الـ bucket من Dashboard: Storage → New bucket → اسم: screenshots → Public)
 DROP POLICY IF EXISTS "screenshots_upload_own" ON storage.objects;
 CREATE POLICY "screenshots_upload_own" ON storage.objects FOR INSERT
   TO authenticated

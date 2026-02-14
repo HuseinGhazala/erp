@@ -24,9 +24,10 @@ npm run dev
 5. **مهم لتفادي "Failed to fetch"**: من **Authentication → URL Configuration** أضف:
    - **Site URL**: عنوان موقعك (مثلاً `https://snow-bee-472058.hostingersite.com` أو للتطوير `http://localhost:5173`).
    - **Redirect URLs**: نفس القيمة أو أضف كل العناوين التي ستفتح منها التطبيق (مثلاً `http://localhost:5173/**` و `https://snow-bee-472058.hostingersite.com/**`).
-6. إذا كان المشروع على الخطة المجانية وكان متوقفاً، ادخل إلى المشروع من الداشبورد لتفعيله من جديد.
-7. **إرسال الإيميلات من إيميلك (مثلاً employees@pixelcodes.net):** من **Project Settings → Authentication → SMTP Settings** فعّل Custom SMTP وضبط Host و Port و Username وPassword. انظر **`docs/SUPABASE-EMAIL-SETUP.md`** للتفاصيل.
-8. أعد تشغيل `npm run dev`. ستظهر شاشة تسجيل الدخول؛ كل موظف يسجّل بحسابه وستُحفظ المهام وجلسات العمل له وحده.
+6. إذا كان المشروع على الخطة المجانية وكان متوقفاً، ادخل إلى المشروع من الداشبورد واضغط **Restore project** لتفعيله من جديد.
+7. **إذا استمرت مشكلة "تعذر الاتصال بالسيرفر":** راجع **`docs/TROUBLESHOOTING-CONNECTION.md`** لخطوات استكشاف الأخطاء (المشروع المتوقف، متغيرات البيئة في الإنتاج، إلخ).
+8. **إرسال الإيميلات من إيميلك (مثلاً employees@pixelcodes.net):** من **Project Settings → Authentication → SMTP Settings** فعّل Custom SMTP وضبط Host و Port و Username وPassword. انظر **`docs/SUPABASE-EMAIL-SETUP.md`** للتفاصيل.
+9. أعد تشغيل `npm run dev`. ستظهر شاشة تسجيل الدخول؛ كل موظف يسجّل بحسابه وستُحفظ المهام وجلسات العمل له وحده.
 
 ### لوحة الأدمن
 
@@ -46,10 +47,9 @@ npm run dev
 
 ### لقطات الشاشة (للموظفين والأدمن)
 
-- من **Storage** في Supabase: **New bucket** → الاسم: `screenshots` → **Private** → Create.
+- من **Storage** في Supabase: **New bucket** → الاسم: `screenshots` → **Public** → Create (يجب أن يكون عاماً لعرض اللقطات للأدمن).
 - من **SQL Editor** نفّذ محتوى الملف **`supabase/screenshots-schema.sql`**.
-- بعدها تُحفظ لقطات الشاشة تلقائياً عند التقاطها، والأدمن يرى لقطات أي موظف من «متابعة النشاط».
-- إذا لم تظهر اللقطات في «متابعة النشاط»، نفّذ **`supabase/screenshots-admin-fix.sql`** من SQL Editor.
+- إذا كان الـ bucket **Private** ولم تظهر اللقطات، غيّره إلى **Public**: Storage → screenshots → ⋮ → Edit → Public.
 
 ### الملف الشخصي (الاسم، الجوال، الصورة)
 
