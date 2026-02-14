@@ -1,15 +1,19 @@
 import { motion } from 'framer-motion';
-import { Clock, LayoutDashboard, ListTodo, Monitor, History, ShieldCheck, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Clock, LayoutDashboard, ListTodo, Monitor, History, ShieldCheck, PanelLeftClose, PanelLeft, FileText, CalendarOff, Settings } from 'lucide-react';
 
 const TABS = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'لوحة التحكم' },
   { id: 'tasks', icon: ListTodo, label: 'المهام' },
   { id: 'monitor', icon: Monitor, label: 'التتبع' },
   { id: 'history', icon: History, label: 'السجل' },
+  { id: 'leave', icon: CalendarOff, label: 'الإجازات' },
+  { id: 'settings', icon: Settings, label: 'الإعدادات' },
 ];
 
 export default function AppSidebar({ activeTab, setActiveTab, isAdmin, collapsed, onToggleCollapse }) {
-  const tabs = isAdmin ? [...TABS, { id: 'admin', icon: ShieldCheck, label: 'الإدارة' }] : TABS;
+  const tabs = isAdmin
+    ? [...TABS, { id: 'reports', icon: FileText, label: 'التقارير' }, { id: 'admin', icon: ShieldCheck, label: 'الإدارة' }]
+    : TABS;
 
   return (
     <motion.aside

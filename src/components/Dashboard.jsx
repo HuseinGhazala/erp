@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { User, Monitor, Zap, Clock } from 'lucide-react';
+import { User, Monitor, Zap, Clock, Users, UserX } from 'lucide-react';
 
 const stagger = {
   show: {
@@ -25,9 +25,40 @@ export default function Dashboard({
   screenshots,
   tasks,
   monitoringEnabled,
+  isAdmin,
+  adminDailySummary,
 }) {
   return (
     <motion.div className="space-y-6" variants={stagger} initial="hidden" animate="show">
+      {isAdmin && adminDailySummary && (
+        <motion.div
+          variants={fadeUp}
+          className="bg-base-100 rounded-[2.5rem] border border-base-200 p-5 md:p-6 shadow-card"
+        >
+          <h3 className="text-sm font-bold text-base-content/70 mb-3 flex items-center gap-2">
+            <Users className="w-5 h-5 text-primary" /> ملخص اليوم
+          </h3>
+          <div className="flex flex-wrap gap-4 md:gap-6">
+            <div className="flex items-center gap-2">
+              <span className="badge badge-primary badge-lg gap-1">
+                <Zap className="w-4 h-4" /> نشط الآن: {adminDailySummary.activeCount}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-base-content font-medium">إجمالي ساعات الفريق اليوم:</span>
+              <span className="font-mono font-bold text-primary">{adminDailySummary.totalFormatted}</span>
+            </div>
+            {adminDailySummary.noSessionNames?.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <UserX className="w-4 h-4 text-warning" />
+                <span className="text-sm text-base-content/70">لم يبدأ اليوم:</span>
+                <span className="text-sm font-medium">{adminDailySummary.noSessionNames.join('، ')}</span>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {user && (
         <motion.div
           variants={fadeUp}

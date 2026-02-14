@@ -20,6 +20,8 @@ import MainContent from './components/MainContent';
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
 const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}` : null;
 
+const STORAGE_KEYS = { THEME: 'trackify_theme', SIDEBAR: 'trackify_sidebar_collapsed' };
+
 const App = () => {
   // ─── القسم 1: حالة المصادقة (Auth) ───
   const [user, setUser] = useState(null);
@@ -40,7 +42,18 @@ const App = () => {
   const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
   const [showReauthModal, setShowReauthModal] = useState(false);
   const [pendingActionAfterReauth, setPendingActionAfterReauth] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SIDEBAR) === 'true';
+    } catch { return false; }
+  });
+  const [uiTheme, setUiTheme] = useState(() => {
+    try {
+      const v = localStorage.getItem(STORAGE_KEYS.THEME);
+      return v === 'dark' || v === 'light' || v === 'auto' ? v : 'auto';
+    } catch { return 'auto'; }
+  });
+  const [toastMessage, setToastMessage] = useState('');
 
   // ─── القسم 2: حالة العمل والتايمر والمهام والأرشيف ───
   const [isWorking, setIsWorking] = useState(false);
@@ -97,6 +110,9 @@ const App = () => {
   const [aiResponse, setAiResponse] = useState(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
+  const [sessionEndReminder, setSessionEndReminder] = useState(false);
+  const [taskReminderDismissed, setTaskReminderDismissed] = useState(false);
+  const [adminDailySummary, setAdminDailySummary] = useState(null);
 
   // ─── القسم 6: حالة التتبع واللقطات (Screen Capture) ───
   const [screenStream, setScreenStream] = useState(null);
@@ -106,6 +122,7 @@ const App = () => {
   
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const sessionEndReminderShownRef = useRef(false);
 
   // ─── القسم 7: القيم المشتقة (Derived) ───
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
@@ -124,6 +141,29 @@ const App = () => {
     }
     return () => clearInterval(interval);
   }, [isWorking]);
+
+  // تطبيق المظهر (فاتح / غامق / تلقائي) مع دعم تفضيل النظام
+  useEffect(() => {
+    const apply = () => {
+      let theme = 'trackify';
+      if (uiTheme === 'dark') theme = 'trackify-dark';
+      else if (uiTheme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) theme = 'trackify-dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    };
+    apply();
+    if (uiTheme !== 'auto') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const listener = () => apply();
+    mq.addEventListener('change', listener);
+    return () => mq.removeEventListener('change', listener);
+  }, [uiTheme]);
+
+  // إظهار التوست ثم إخفاؤه بعد ثوانٍ
+  useEffect(() => {
+    if (!toastMessage) return;
+    const t = setTimeout(() => setToastMessage(''), 3000);
+    return () => clearTimeout(t);
+  }, [toastMessage]);
 
   // جلب مدة اللقطة التلقائية من الإعدادات
   useEffect(() => {
@@ -145,6 +185,21 @@ const App = () => {
     }
     return () => clearInterval(screenshotTimer);
   }, [isWorking, monitoringEnabled, monitoringMode, screenStream, screenshotIntervalMinutes]);
+
+  // تذكير قبل إنهاء الجلسة (قبل ٥ دقائق من ٤ ساعات — مرة واحدة لكل جلسة)
+  const FOUR_HOURS_SEC = 4 * 3600;
+  const REMIND_BEFORE_SEC = 5 * 60;
+  useEffect(() => {
+    if (!isWorking) {
+      sessionEndReminderShownRef.current = false;
+      setSessionEndReminder(false);
+      return;
+    }
+    if (elapsedTime >= FOUR_HOURS_SEC - REMIND_BEFORE_SEC && !sessionEndReminderShownRef.current) {
+      sessionEndReminderShownRef.current = true;
+      setSessionEndReminder(true);
+    }
+  }, [isWorking, elapsedTime]);
 
   // استماع لطلبات الأدمن: لقطة يدوية للموظف الحالي
   useEffect(() => {
@@ -388,6 +443,40 @@ const App = () => {
       supabase.removeChannel(chActive);
     };
   }, [supabase, isAdmin, loadAdminHistory]);
+
+  // ملخص يومي للأدمن عند فتح لوحة التحكم أو لوحة الإدارة
+  useEffect(() => {
+    if (!supabase || !isAdmin || (activeTab !== 'dashboard' && activeTab !== 'admin')) {
+      setAdminDailySummary(null);
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([
+      supabase.from('active_work_sessions').select('user_id'),
+      supabase.from('work_sessions').select('user_id, duration').eq('date', today),
+      supabase.from('profiles').select('id, full_name, role').neq('role', 'محذوف'),
+    ]).then(([activeRes, sessionsRes, profilesRes]) => {
+      const activeIds = new Set((activeRes.data || []).map((r) => r.user_id));
+      const sessionUserIds = new Set((sessionsRes.data || []).map((r) => r.user_id));
+      const employees = (profilesRes.data || []).filter((p) => p.role !== 'admin');
+      const noSessionNames = employees.filter((e) => !sessionUserIds.has(e.id)).map((e) => e.full_name || 'بدون اسم');
+      const parseDur = (dur) => {
+        if (!dur) return 0;
+        const m = /^(\d+):(\d+):(\d+)$/.exec(dur);
+        if (m) return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
+        return 0;
+      };
+      let totalSec = 0;
+      (sessionsRes.data || []).forEach((s) => { totalSec += parseDur(s.duration); });
+      const h = Math.floor(totalSec / 3600);
+      const min = Math.floor((totalSec % 3600) / 60);
+      setAdminDailySummary({
+        activeCount: activeIds.size,
+        noSessionNames,
+        totalFormatted: `${h}:${min.toString().padStart(2, '0')}`,
+      });
+    }).catch(() => setAdminDailySummary(null));
+  }, [supabase, isAdmin, activeTab]);
 
   // عند فتح تبويب السجل كأدمن: تحديث الأرشيف وقائمة النشطين
   useEffect(() => {
@@ -884,13 +973,9 @@ const App = () => {
     } catch (_) {}
   };
 
-  const callGemini = async (prompt) => {
-    if (!GEMINI_URL) {
-      setAiResponse("لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env");
-      setShowAiModal(true);
-      return;
-    }
-    setAiLoading(true);
+  // استدعاء Gemini وإرجاع النص فقط (للاستخدام في الاقتراحات أو التحليل الأسبوعي)
+  const getGeminiResponse = useCallback(async (prompt) => {
+    if (!GEMINI_URL) return null;
     let delay = 1000;
     for (let i = 0; i < 5; i++) {
       try {
@@ -904,21 +989,81 @@ const App = () => {
         });
         if (!response.ok) throw new Error();
         const data = await response.json();
-        setAiResponse(data.candidates?.[0]?.content?.parts?.[0]?.text);
-        setShowAiModal(true);
-        setAiLoading(false);
-        return;
-      } catch (err) {
-        if (i === 4) {
-          setAiResponse("عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.");
-          setShowAiModal(true);
-          setAiLoading(false);
-        }
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } catch (_) {
+        if (i === 4) return null;
         await new Promise(r => setTimeout(r, delay));
         delay *= 2;
       }
     }
-  };
+    return null;
+  }, []);
+
+  const callGemini = useCallback(async (prompt) => {
+    if (!GEMINI_URL) {
+      setAiResponse("لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env");
+      setShowAiModal(true);
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const text = await getGeminiResponse(prompt);
+      setAiResponse(text || "عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.");
+      setShowAiModal(true);
+    } finally {
+      setAiLoading(false);
+    }
+  }, [getGeminiResponse]);
+
+  // تحليل أسبوعي للفريق (آخر 7 أيام)
+  const callGeminiWeeklySummary = useCallback(async () => {
+    if (!GEMINI_URL || !supabase) {
+      setAiResponse("لم يتم ضبط مفتاح Gemini أو الاتصال بقاعدة البيانات.");
+      setShowAiModal(true);
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const dateFrom = weekAgo.toISOString().slice(0, 10);
+      const { data } = await supabase.from('work_sessions').select('user_id, duration, tasks_completed').gte('date', dateFrom).lte('date', today);
+      const byUser = {};
+      (data || []).forEach((s) => {
+        const uid = s.user_id;
+        if (!byUser[uid]) byUser[uid] = { seconds: 0, tasks: 0 };
+        byUser[uid].seconds += parseDurationToSeconds(s.duration);
+        byUser[uid].tasks += Number(s.tasks_completed) || 0;
+      });
+      const active = adminEmployees.filter((e) => e.role !== 'محذوف');
+      const lines = active.map((emp) => {
+        const d = byUser[emp.id];
+        const sec = d ? d.seconds : 0;
+        const tasks = d ? d.tasks : 0;
+        return `${emp.full_name || 'بدون اسم'} (${emp.job_title || 'موظف'}): ساعات ${formatSecondsToHM(sec)}، مهام منجزة ${tasks}`;
+      });
+      const prompt = `تلخيص أسبوعي لأداء الفريق (آخر 7 أيام):\n\n${lines.join('\n')}\n\nقدم تلخيصاً موجزاً لأداء الفريق مع نقاط قوة واقتراحات للتحسين.`;
+      await callGemini(prompt);
+    } catch (_) {
+      setAiResponse("فشل تحميل بيانات الأسبوع. تأكد من الاتصال بقاعدة البيانات.");
+      setShowAiModal(true);
+      setAiLoading(false);
+    }
+  }, [supabase, adminEmployees, callGemini, formatSecondsToHM]);
+
+  // اقتراح مهام لموظف حسب المسمى (لنموذج إضافة مهمة)
+  const suggestTasksForEmployee = useCallback(async (emp) => {
+    const text = await getGeminiResponse(
+      `اقترح 5 مهام عمل مناسبة لموظف بمسمى وظيفي: ${emp?.job_title || 'موظف'}. أعد القائمة فقط: سطر واحد لكل مهمة، تبدأ برقم ثم نقطة ثم نص المهمة، بدون عناوين أو شرح إضافي.`
+    );
+    if (!text) return [];
+    const lines = text
+      .split(/\n/)
+      .map((s) => s.replace(/^[\d\u0660-\u0669.\-*\s]+/, '').trim())
+      .filter(Boolean);
+    return lines.slice(0, 5);
+  }, [getGeminiResponse]);
 
   const doEndSession = (completedTasksCount, workItems = []) => {
     const now = new Date();
@@ -1044,7 +1189,13 @@ const App = () => {
           setActiveTab={setActiveTab}
           isAdmin={isAdmin}
           sidebarCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+          onToggleCollapse={() => {
+            setSidebarCollapsed((c) => {
+              const next = !c;
+              try { localStorage.setItem(STORAGE_KEYS.SIDEBAR, String(next)); } catch (_) {}
+              return next;
+            });
+          }}
           displayName={displayName}
           avatarDisplayUrl={avatarDisplayUrl}
           user={user}
@@ -1053,7 +1204,14 @@ const App = () => {
           onLogout={handleLogout}
           newTaskNotification={newTaskNotification}
           onDismissNotification={() => setNewTaskNotification(null)}
+          sessionEndReminder={sessionEndReminder}
+          onDismissSessionReminder={() => setSessionEndReminder(false)}
+          onEndSessionClick={() => { setSessionEndReminder(false); setShowEndSessionModal(true); }}
+          taskReminderDismissed={taskReminderDismissed}
+          onDismissTaskReminder={() => setTaskReminderDismissed(true)}
+          incompleteTaskCount={tasks.filter((t) => !t.completed).length}
           supabase={supabase}
+          toastMessage={toastMessage}
         >
       {showAiModal && <AiModal aiResponse={aiResponse} onClose={() => setShowAiModal(false)} />}
 
@@ -1089,6 +1247,7 @@ const App = () => {
           setAdminTaskText={setAdminTaskText}
           onSubmit={submitAddTaskForEmployee}
           onClose={() => { setShowAddTaskModal(false); setAdminSelectedForTask(null); }}
+          onSuggestTasks={suggestTasksForEmployee}
         />
       )}
 
@@ -1136,6 +1295,7 @@ const App = () => {
 
       <MainContent
         activeTab={activeTab}
+        setActiveTab={setActiveTab}
         isAdmin={isAdmin}
         user={user}
         displayName={displayName}
@@ -1148,6 +1308,7 @@ const App = () => {
         dailyDisplay={dailyDisplay}
         screenshots={screenshots}
         tasks={tasks}
+        adminDailySummary={adminDailySummary}
         setTasks={setTasks}
         newTask={newTask}
         setNewTask={setNewTask}
@@ -1197,6 +1358,13 @@ const App = () => {
         refetchAdminEmployees={refetchAdminEmployees}
         aiLoading={aiLoading}
         callGemini={callGemini}
+        callGeminiWeeklySummary={callGeminiWeeklySummary}
+        uiTheme={uiTheme}
+        setUiTheme={setUiTheme}
+        sidebarCollapsed={sidebarCollapsed}
+        setSidebarCollapsed={setSidebarCollapsed}
+        storageKeys={STORAGE_KEYS}
+        setToastMessage={setToastMessage}
       />
         </AppLayout>
       )}

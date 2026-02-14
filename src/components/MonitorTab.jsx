@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Eye, Camera, Monitor, Loader2, Trash2, User, X } from 'lucide-react';
+import { Eye, Monitor, Loader2, Trash2, User, X } from 'lucide-react';
 import { Card, CardHeader, CardBody, Button, Modal, ModalContent, ModalHeader, ModalBody } from '@heroui/react';
 
 export default function MonitorTab({
@@ -10,7 +10,6 @@ export default function MonitorTab({
   adminGalleryScreenshots,
   screenshots,
   setScreenshots,
-  takeScreenshot,
 }) {
   const [fullscreenImage, setFullscreenImage] = useState(null);
 
@@ -27,22 +26,14 @@ export default function MonitorTab({
 
   return (
     <div className="card card-soft bg-base-100 p-6 md:p-10 hover-lift">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3 text-base-content">
-            <Eye className="text-primary w-7 h-7 md:w-8 md:h-8" />
-            معرض التتبع الرقمي
-          </h2>
-          <p className="text-base-content/50 text-sm font-medium mt-1">
-            {isAdmin ? 'لقطات شاشة مصنفة حسب الموظف — انقر على أي لقطة لعرضها بالكامل' : 'سجل بصري لنشاط العمل المسجل في الجلسة الحالية'}
-          </p>
-        </div>
-        {!isAdmin && isWorking && monitoringEnabled && (
-          <button type="button" className="btn btn-primary rounded-2xl font-bold gap-2" onClick={takeScreenshot}>
-            <Camera className="w-5 h-5" />
-            التقاط صورة يدوية
-          </button>
-        )}
+      <div className="flex flex-col gap-1 mb-8">
+        <h2 className="text-2xl md:text-3xl font-black flex items-center gap-3 text-base-content">
+          <Eye className="text-primary w-7 h-7 md:w-8 md:h-8" />
+          معرض التتبع الرقمي
+        </h2>
+        <p className="text-base-content/50 text-sm font-medium mt-1">
+          {isAdmin ? 'لقطات شاشة مصنفة حسب الموظف — انقر على أي لقطة لعرضها بالكامل' : 'سجل بصري لنشاط العمل المسجل في الجلسة الحالية'}
+        </p>
       </div>
 
       {isAdmin ? (

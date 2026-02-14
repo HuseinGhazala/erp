@@ -7,6 +7,8 @@ const TAB_TITLES = {
   tasks: 'المهام',
   monitor: 'التتبع',
   history: 'السجل',
+  leave: 'الإجازات',
+  reports: 'التقارير',
   admin: 'الإدارة',
 };
 

@@ -14,6 +14,10 @@ import {
   Settings2,
   Sparkles,
   ChevronDown,
+  Zap,
+  Clock,
+  FileText,
+  UserX,
 } from 'lucide-react';
 
 const fadeUp = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } };
@@ -41,16 +45,37 @@ export default function AdminPanel({
   openSalaryEdit,
   aiLoading,
   callGemini,
+  callGeminiWeeklySummary,
   adminGalleryScreenshots = [],
+  setToastMessage,
+  activeUserIds = [],
+  adminDailySummary,
+  setActiveTab,
 }) {
   const [adminTab, setAdminTab] = useState('employees');
   const [savingInterval, setSavingInterval] = useState(false);
   const [aiSelectedEmployeeId, setAiSelectedEmployeeId] = useState('all');
 
+  // إحصائيات سريعة للنظرة العامة
+  const totalHoursTodaySec = Object.values(employeeDailyHours || {}).reduce((a, b) => a + (b || 0), 0);
+  const totalHoursTodayFormatted = formatSecondsToHM(totalHoursTodaySec);
+  const totalPayrollMonth = (employeeSalaryData && activeEmployees)
+    ? activeEmployees
+        .filter((e) => e.role !== 'admin')
+        .reduce((sum, e) => sum + (employeeSalaryData[e.id]?.calculated ?? 0), 0)
+    : 0;
+  const activeNowCount = Array.isArray(activeUserIds) ? activeUserIds.length : (adminDailySummary?.activeCount ?? 0);
+  const activeNowNames = (activeEmployees || [])
+    .filter((e) => activeUserIds?.includes(e.id))
+    .map((e) => e.full_name || 'بدون اسم');
+  const notStartedToday = adminDailySummary?.noSessionNames ?? [];
+  const employeeCount = (activeEmployees || []).filter((e) => e.role !== 'admin').length;
+
   const handleSaveInterval = async () => {
     setSavingInterval(true);
     await handleSaveScreenshotInterval();
     setSavingInterval(false);
+    if (typeof setToastMessage === 'function') setToastMessage('تم حفظ الإعدادات');
   };
 
   const openAddEmployee = () => {
@@ -96,6 +121,78 @@ export default function AdminPanel({
             تحديث
           </button>
         </div>
+      </motion.div>
+
+      {/* نظرة عامة: بطاقات إحصائية وإجراءات سريعة */}
+      <motion.div variants={fadeUp} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div className="card card-soft bg-base-100 p-4 rounded-2xl border border-base-200/80 hover:border-primary/20 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <Users className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-base-content/50 uppercase tracking-wide">الموظفون</p>
+              <p className="text-xl font-black text-base-content">{employeeCount}</p>
+            </div>
+          </div>
+        </div>
+        <div className="card card-soft bg-base-100 p-4 rounded-2xl border border-base-200/80 hover:border-primary/20 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-success" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-base-content/50 uppercase tracking-wide">يعمل الآن</p>
+              <p className="text-xl font-black text-base-content">{activeNowCount}</p>
+              {activeNowNames?.length > 0 && (
+                <p className="text-xs text-base-content/60 truncate mt-0.5" title={activeNowNames.join('، ')}>{activeNowNames.join('، ')}</p>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="card card-soft bg-base-100 p-4 rounded-2xl border border-base-200/80 hover:border-primary/20 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-info/10 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5 text-info" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-base-content/50 uppercase tracking-wide">ساعات الفريق اليوم</p>
+              <p className="text-xl font-black text-base-content font-mono">{totalHoursTodayFormatted}</p>
+            </div>
+          </div>
+        </div>
+        <div className="card card-soft bg-base-100 p-4 rounded-2xl border border-base-200/80 hover:border-primary/20 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-warning/10 flex items-center justify-center shrink-0">
+              <DollarSign className="w-5 h-5 text-warning" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-base-content/50 uppercase tracking-wide">الرواتب المحسوبة (الشهر)</p>
+              <p className="text-xl font-black text-base-content">{totalPayrollMonth.toLocaleString('ar-EG')} <span className="text-sm font-bold">ج.م</span></p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {notStartedToday?.length > 0 && (
+        <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-2 p-4 rounded-2xl bg-warning/5 border border-warning/20">
+          <UserX className="w-5 h-5 text-warning shrink-0" />
+          <span className="text-sm font-medium text-base-content/80">لم يبدأ اليوم:</span>
+          <span className="text-sm font-bold text-base-content">{notStartedToday.join('، ')}</span>
+        </motion.div>
+      )}
+
+      {/* إجراءات سريعة */}
+      <motion.div variants={fadeUp} className="flex flex-wrap gap-2">
+        <button type="button" className="btn btn-outline btn-primary gap-2 rounded-2xl font-bold" onClick={() => setActiveTab?.('reports')}>
+          <FileText className="w-4 h-4" /> التقارير
+        </button>
+        <button type="button" className="btn btn-outline btn-primary gap-2 rounded-2xl font-bold" onClick={() => setAdminTab('ai')}>
+          <Sparkles className="w-4 h-4" /> الذكاء الاصطناعي
+        </button>
+        <button type="button" className="btn btn-outline btn-primary gap-2 rounded-2xl font-bold" onClick={openAddEmployee}>
+          <UserPlus className="w-4 h-4" /> إضافة موظف
+        </button>
       </motion.div>
 
       {/* تبويبات بأزرار مثل باقي المشروع */}
@@ -238,7 +335,7 @@ export default function AdminPanel({
           <h3 className="text-lg font-black text-base-content flex items-center gap-2 mb-4">
             <Sparkles className="w-5 h-5 text-primary" /> تحليل بالنص الاصطناعي
           </h3>
-          <p className="text-sm text-base-content/60 mb-4">اختر موظفاً لتحليله لوحده، أو «جميع الفريق» للملخص العام. النتيجة تظهر في نافذة منبثقة.</p>
+          <p className="text-sm text-base-content/60 mb-4">اختر موظفاً لتحليله لوحده، أو «جميع الفريق» للملخص اليومي. يمكنك أيضاً طلب تلخيص أسبوعي لأداء الفريق.</p>
           <div className="flex flex-col gap-4">
             <div>
               <label className="text-sm font-bold text-base-content/80 block mb-2">تحليل لـ</label>
@@ -256,28 +353,49 @@ export default function AdminPanel({
                 ))}
               </select>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary rounded-2xl font-bold gap-2 w-full sm:w-auto"
-              disabled={aiLoading}
-              onClick={() => {
-                if (aiSelectedEmployeeId === 'all') {
-                  callGemini('لخص نشاط الفريق والإنتاجية اليوم بناءً على البيانات المتاحة. قدّم نصائح لتحسين الأداء.');
-                  return;
-                }
-                const emp = activeEmployees.find((e) => e.id === aiSelectedEmployeeId);
-                if (!emp) return;
-                const hours = formatSecondsToHM(employeeDailyHours[emp.id]);
-                const salaryData = employeeSalaryData[emp.id];
-                const salary = salaryData?.calculated != null ? salaryData.calculated.toLocaleString('ar-EG') : '—';
-                const screenshotCount = adminGalleryScreenshots.filter((s) => s.user_id === emp.id).length;
-                const prompt = `تحليل أداء الموظف التالي فقط:\nالاسم: ${emp.full_name || 'بدون اسم'}\nالمسمى: ${emp.job_title || 'موظف'}\nساعات العمل المسجلة اليوم: ${hours}\nالراتب المحسوب: ${salary}\nعدد لقطات الشاشة المسجلة: ${screenshotCount}\n\nقدّم تحليلاً مختصراً لأداء هذا الموظف اليوم مع نصائح عملية لتحسين الإنتاجية.`;
-                callGemini(prompt);
-              }}
-            >
-              {aiLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-              {aiLoading ? 'جاري التحليل...' : aiSelectedEmployeeId === 'all' ? 'تحليل نشاط الفريق' : 'تحليل الموظف المحدد'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-primary rounded-2xl font-bold gap-2"
+                disabled={aiLoading}
+                onClick={() => {
+                  if (aiSelectedEmployeeId === 'all') {
+                    const teamLines = activeEmployees.map((emp) => {
+                      const hours = formatSecondsToHM(employeeDailyHours[emp.id]);
+                      const salaryData = employeeSalaryData[emp.id];
+                      const salary = salaryData?.calculated != null ? salaryData.calculated.toLocaleString('ar-EG') : '—';
+                      const screenshotCount = adminGalleryScreenshots.filter((s) => s.user_id === emp.id).length;
+                      return `${emp.full_name || 'بدون اسم'} (${emp.job_title || 'موظف'}): ساعات اليوم ${hours}، راتب محسوب ${salary}، لقطات شاشة ${screenshotCount}`;
+                    });
+                    const dataStr = teamLines.join('\n');
+                    callGemini(`البيانات اليوم للفريق:\n${dataStr}\n\nلخص نشاط الفريق والإنتاجية اليوم بناءً على البيانات أعلاه وقدم نصائح لتحسين الأداء.`);
+                    return;
+                  }
+                  const emp = activeEmployees.find((e) => e.id === aiSelectedEmployeeId);
+                  if (!emp) return;
+                  const hours = formatSecondsToHM(employeeDailyHours[emp.id]);
+                  const salaryData = employeeSalaryData[emp.id];
+                  const salary = salaryData?.calculated != null ? salaryData.calculated.toLocaleString('ar-EG') : '—';
+                  const screenshotCount = adminGalleryScreenshots.filter((s) => s.user_id === emp.id).length;
+                  const prompt = `تحليل أداء الموظف التالي فقط:\nالاسم: ${emp.full_name || 'بدون اسم'}\nالمسمى: ${emp.job_title || 'موظف'}\nساعات العمل المسجلة اليوم: ${hours}\nالراتب المحسوب: ${salary}\nعدد لقطات الشاشة المسجلة: ${screenshotCount}\n\nقدّم تحليلاً مختصراً لأداء هذا الموظف اليوم مع نصائح عملية لتحسين الإنتاجية.`;
+                  callGemini(prompt);
+                }}
+              >
+                {aiLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {aiLoading ? 'جاري التحليل...' : aiSelectedEmployeeId === 'all' ? 'تحليل نشاط الفريق' : 'تحليل الموظف المحدد'}
+              </button>
+              {typeof callGeminiWeeklySummary === 'function' && (
+                <button
+                  type="button"
+                  className="btn btn-outline btn-primary rounded-2xl font-bold gap-2"
+                  disabled={aiLoading}
+                  onClick={callGeminiWeeklySummary}
+                >
+                  {aiLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  تحليل أسبوعي للفريق
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
       )}
