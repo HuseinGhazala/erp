@@ -102,8 +102,6 @@ export default function MainContent({
   setCreateGroupSelectedIds,
   createGroupLoading,
   onCreateChatGroup,
-  unreadDirect = {},
-  unreadGroups = {},
 }) {
   return (
     <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
@@ -192,8 +190,6 @@ export default function MainContent({
           setCreateGroupSelectedIds={setCreateGroupSelectedIds}
           createGroupLoading={createGroupLoading}
           onCreateChatGroup={onCreateChatGroup}
-          unreadDirect={unreadDirect}
-          unreadGroups={unreadGroups}
         />
       )}
 

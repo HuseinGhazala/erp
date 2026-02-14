@@ -11,7 +11,7 @@ const TABS = [
   { id: 'settings', icon: Settings, label: 'الإعدادات' },
 ];
 
-export default function AppSidebar({ activeTab, setActiveTab, isAdmin, collapsed, onToggleCollapse, chatUnreadTotal = 0 }) {
+export default function AppSidebar({ activeTab, setActiveTab, isAdmin, collapsed, onToggleCollapse }) {
   const tabs = isAdmin
     ? [...TABS, { id: 'reports', icon: FileText, label: 'التقارير' }, { id: 'admin', icon: ShieldCheck, label: 'الإدارة' }]
     : TABS;
@@ -43,7 +43,7 @@ export default function AppSidebar({ activeTab, setActiveTab, isAdmin, collapsed
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-right transition-all duration-200 relative ${
+            className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-right transition-all duration-200 ${
               activeTab === tab.id
                 ? 'bg-primary text-primary-content shadow-md shadow-primary/20'
                 : 'text-base-content/70 hover:bg-base-200 hover:text-base-content'
@@ -52,11 +52,6 @@ export default function AppSidebar({ activeTab, setActiveTab, isAdmin, collapsed
           >
             <tab.icon className="w-5 h-5 shrink-0" />
             {!collapsed && <span className="font-bold text-sm truncate">{tab.label}</span>}
-            {tab.id === 'chat' && chatUnreadTotal > 0 && (
-              <span className="badge badge-sm badge-error min-w-[1.25rem] h-5 px-1 absolute end-2 top-1/2 -translate-y-1/2">
-                {chatUnreadTotal > 99 ? '99+' : chatUnreadTotal}
-              </span>
-            )}
           </button>
         ))}
       </nav>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Swal from 'sweetalert2';
 import { Loader2 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
-import { playNotificationSound, resumeAudioForNotifications } from './utils/notificationSound';
+import { playNotificationSound } from './utils/notificationSound';
 import AuthScreen from './components/AuthScreen';
 import BlockedScreen from './components/BlockedScreen';
 import AiModal from './components/modals/AiModal';
@@ -127,8 +127,6 @@ const App = () => {
   const [createGroupSelectedIds, setCreateGroupSelectedIds] = useState([]);
   const [createGroupLoading, setCreateGroupLoading] = useState(false);
   const [chatGroupMembersMap, setChatGroupMembersMap] = useState({}); // groupId -> [{ id, full_name }]
-  const [unreadDirect, setUnreadDirect] = useState({}); // { [senderId]: count }
-  const [unreadGroups, setUnreadGroups] = useState({}); // { [groupId]: count }
 
   // ─── القسم 5: حالة المساعد الذكي (AI) ───
   const [aiLoading, setAiLoading] = useState(false);
@@ -260,11 +258,6 @@ const App = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [supabase, user?.id]);
-
-  // تفعيل الصوت عند فتح تبويب المحادثات (مطلوب بسبب سياسة المتصفح)
-  useEffect(() => {
-    if (activeTab === 'chat') resumeAudioForNotifications();
-  }, [activeTab]);
 
   // تحديث الـ ref للشات لاستخدامه في callback الـ Realtime
   useEffect(() => {
@@ -488,43 +481,21 @@ const App = () => {
     [supabase, user?.id, loadChatGroups, setToastMessage]
   );
 
-  const handleSelectChatUser = useCallback((id) => {
-    setSelectedChatUserId(id);
-    setSelectedChatGroupId(null);
-    if (id) setUnreadDirect((prev) => ({ ...prev, [id]: 0 }));
-  }, []);
-
-  const handleSelectChatGroup = useCallback((id) => {
-    setSelectedChatGroupId(id);
-    setSelectedChatUserId(null);
-    if (id) setUnreadGroups((prev) => ({ ...prev, [id]: 0 }));
-  }, []);
-
-  // إشعار صوتي + عداد غير مقروءة عند استلام رسالة جديدة
+  // إشعار صوتي عند استلام رسالة جديدة (مباشرة أو مجموعة) + تحديث المحادثة المفتوحة
   useEffect(() => {
     if (!supabase || !user?.id) return;
     const onNewDirectMessage = (payload) => {
       const row = payload.new;
       if (!row || row.sender_id === user.id) return;
-      const isOpen = chatRealtimeRef.current.selectedUserId === row.sender_id;
-      if (!isOpen) {
-        setUnreadDirect((prev) => ({ ...prev, [row.sender_id]: (prev[row.sender_id] || 0) + 1 }));
-        if (document.visibilityState === 'visible') playNotificationSound();
-      } else {
-        loadChatMessages();
-      }
+      if (document.visibilityState === 'visible') playNotificationSound();
+      if (chatRealtimeRef.current.selectedUserId === row.sender_id) loadChatMessages();
     };
     const onNewGroupMessage = (payload) => {
       const row = payload.new;
       if (!row || row.sender_id === user.id) return;
       if (!chatRealtimeRef.current.groupIds.includes(row.group_id)) return;
-      const isOpen = chatRealtimeRef.current.selectedGroupId === row.group_id;
-      if (!isOpen) {
-        setUnreadGroups((prev) => ({ ...prev, [row.group_id]: (prev[row.group_id] || 0) + 1 }));
-        if (document.visibilityState === 'visible') playNotificationSound();
-      } else {
-        loadChatGroupMessages();
-      }
+      if (document.visibilityState === 'visible') playNotificationSound();
+      if (chatRealtimeRef.current.selectedGroupId === row.group_id) loadChatGroupMessages();
     };
     const ch1 = supabase
       .channel('chat_messages_realtime')
@@ -1477,7 +1448,6 @@ const App = () => {
           incompleteTaskCount={tasks.filter((t) => !t.completed).length}
           supabase={supabase}
           toastMessage={toastMessage}
-          chatUnreadTotal={Object.values(unreadDirect).reduce((a, b) => a + b, 0) + Object.values(unreadGroups).reduce((a, b) => a + b, 0)}
         >
       {showAiModal && <AiModal aiResponse={aiResponse} onClose={() => setShowAiModal(false)} />}
 
@@ -1638,7 +1608,7 @@ const App = () => {
         chatContacts={chatContacts}
         chatMessages={chatMessages}
         selectedChatUserId={selectedChatUserId}
-        onSelectChatUser={handleSelectChatUser}
+        onSelectChatUser={setSelectedChatUserId}
         onSendChatMessage={sendChatMessage}
         chatLoading={chatLoading}
         sendChatLoading={sendChatLoading}
@@ -1647,9 +1617,7 @@ const App = () => {
         chatGroups={chatGroups}
         chatGroupMessages={chatGroupMessages}
         selectedChatGroupId={selectedChatGroupId}
-        onSelectChatGroup={handleSelectChatGroup}
-        unreadDirect={unreadDirect}
-        unreadGroups={unreadGroups}
+        onSelectChatGroup={setSelectedChatGroupId}
         chatGroupMembersMap={chatGroupMembersMap}
         chatGroupLoading={chatGroupLoading}
         sendChatGroupLoading={sendChatGroupLoading}

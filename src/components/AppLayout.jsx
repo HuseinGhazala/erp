@@ -25,7 +25,6 @@ export default function AppLayout({
   incompleteTaskCount,
   supabase,
   toastMessage,
-  chatUnreadTotal = 0,
   children,
 }) {
   return (
@@ -36,7 +35,6 @@ export default function AppLayout({
         isAdmin={isAdmin}
         collapsed={sidebarCollapsed}
         onToggleCollapse={onToggleCollapse}
-        chatUnreadTotal={chatUnreadTotal}
       />
       <div
         className="flex flex-col min-h-screen transition-[margin] duration-300 ease-out"
