@@ -148,7 +148,8 @@ const App = () => {
       let theme = 'trackify';
       if (uiTheme === 'dark') theme = 'trackify-dark';
       else if (uiTheme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) theme = 'trackify-dark';
-      document.documentElement.setAttribute('data-theme', theme);
+      const root = document.body;
+      if (root) root.setAttribute('data-theme', theme);
     };
     apply();
     if (uiTheme !== 'auto') return;
@@ -359,7 +360,7 @@ const App = () => {
     if (!supabase || !isAdmin || activeTab !== 'monitor') return;
     setAdminGalleryLoading(true);
     const loadAdminGallery = async () => {
-      const { data: rows } = await supabase.from('screenshots').select('id, file_path, time_display, is_virtual, user_id, created_at').order('created_at', { ascending: false }).limit(100);
+      const { data: rows } = await supabase.from('screenshots').select('id, file_path, time_display, is_virtual, user_id, created_at').order('created_at', { ascending: false }).limit(5000);
       const list = rows || [];
       if (list.length === 0) {
         setAdminGalleryScreenshots([]);
@@ -808,7 +809,7 @@ const App = () => {
     const [sessionsRes, tasksRes, screensRes] = await Promise.all([
       supabase.from('work_sessions').select('date, start_time, end_time, duration, tasks_completed, work_summary').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(20),
       supabase.from('tasks').select('id, text, completed').eq('user_id', emp.id).order('created_at', { ascending: false }),
-      supabase.from('screenshots').select('id, file_path, time_display, is_virtual, created_at').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(30)
+      supabase.from('screenshots').select('id, file_path, time_display, is_virtual, created_at').eq('user_id', emp.id).order('created_at', { ascending: false }).limit(2000)
     ]);
     const sessions = (sessionsRes.data || []).map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') }));
     const tasks = tasksRes.data || [];
@@ -958,7 +959,7 @@ const App = () => {
       time: timeStr,
       data: imageData,
       isVirtual: false
-    }, ...prev].slice(0, 10));
+    }, ...prev].slice(0, 2000));
     saveScreenshotToSupabase(imageData, false, timeStr);
   };
 
