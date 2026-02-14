@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Swal from 'sweetalert2';
 import { Loader2 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
+import { playNotificationSound } from './utils/notificationSound';
 import AuthScreen from './components/AuthScreen';
 import BlockedScreen from './components/BlockedScreen';
 import AiModal from './components/modals/AiModal';
@@ -145,6 +146,7 @@ const App = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const sessionEndReminderShownRef = useRef(false);
+  const chatRealtimeRef = useRef({ selectedUserId: null, selectedGroupId: null, groupIds: [] });
 
   // ─── القسم 7: القيم المشتقة (Derived) ───
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
@@ -256,6 +258,15 @@ const App = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [supabase, user?.id]);
+
+  // تحديث الـ ref للشات لاستخدامه في callback الـ Realtime
+  useEffect(() => {
+    chatRealtimeRef.current = {
+      selectedUserId: selectedChatUserId,
+      selectedGroupId: selectedChatGroupId,
+      groupIds: chatGroups.map((g) => g.id),
+    };
+  }, [selectedChatUserId, selectedChatGroupId, chatGroups]);
 
   // Supabase Auth: جلب الجلسة ومتابعة تغيير تسجيل الدخول + كشف رابط استعادة كلمة المرور
   useEffect(() => {
@@ -469,6 +480,36 @@ const App = () => {
     },
     [supabase, user?.id, loadChatGroups, setToastMessage]
   );
+
+  // إشعار صوتي عند استلام رسالة جديدة (مباشرة أو مجموعة) + تحديث المحادثة المفتوحة
+  useEffect(() => {
+    if (!supabase || !user?.id) return;
+    const onNewDirectMessage = (payload) => {
+      const row = payload.new;
+      if (!row || row.sender_id === user.id) return;
+      if (document.visibilityState === 'visible') playNotificationSound();
+      if (chatRealtimeRef.current.selectedUserId === row.sender_id) loadChatMessages();
+    };
+    const onNewGroupMessage = (payload) => {
+      const row = payload.new;
+      if (!row || row.sender_id === user.id) return;
+      if (!chatRealtimeRef.current.groupIds.includes(row.group_id)) return;
+      if (document.visibilityState === 'visible') playNotificationSound();
+      if (chatRealtimeRef.current.selectedGroupId === row.group_id) loadChatGroupMessages();
+    };
+    const ch1 = supabase
+      .channel('chat_messages_realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `recipient_id=eq.${user.id}` }, onNewDirectMessage)
+      .subscribe();
+    const ch2 = supabase
+      .channel('chat_group_messages_realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_group_messages' }, onNewGroupMessage)
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch1);
+      supabase.removeChannel(ch2);
+    };
+  }, [supabase, user?.id, loadChatMessages, loadChatGroupMessages]);
 
   const getWorkingDaysInMonth = (year, month) => {
     const d = new Date(year, month - 1, 1);

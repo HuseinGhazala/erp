@@ -43,8 +43,8 @@ CREATE POLICY "profiles_select_for_chat" ON public.profiles
     AND (role IS NULL OR role != 'محذوف')
   );
 
--- تفعيل Realtime للشات (اختياري): من Dashboard → Database → Replication → فعّل جدول chat_messages
--- أو: ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+-- تفعيل Realtime للشات والإشعار الصوتي: من Dashboard → Database → Replication
+-- فعّل جدول chat_messages و chat_group_messages (أو: ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages; ثم نفس الأمر لـ chat_group_messages)
 
 -- ─── مجموعات الشات ───
 CREATE TABLE IF NOT EXISTS public.chat_groups (
