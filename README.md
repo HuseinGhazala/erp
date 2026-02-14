@@ -49,6 +49,13 @@ npm run dev
 - من **Storage** في Supabase: **New bucket** → الاسم: `screenshots` → **Private** → Create.
 - من **SQL Editor** نفّذ محتوى الملف **`supabase/screenshots-schema.sql`**.
 - بعدها تُحفظ لقطات الشاشة تلقائياً عند التقاطها، والأدمن يرى لقطات أي موظف من «متابعة النشاط».
+- إذا لم تظهر اللقطات في «متابعة النشاط»، نفّذ **`supabase/screenshots-admin-fix.sql`** من SQL Editor.
+
+### الملف الشخصي (الاسم، الجوال، الصورة)
+
+- من **Storage** في Supabase: **New bucket** → الاسم: `avatars` → **Private** → Create.
+- من **SQL Editor** نفّذ محتوى الملف **`supabase/profiles-extended.sql`** (بعد `admin-policies.sql`).
+- بعدها يستطيع كل موظف من زر **«الملف الشخصي»** في الأسفل تعديل اسمه، إضافة رقم جواله، ورفع صورته الشخصية.
 
 ## البناء للإنتاج
 

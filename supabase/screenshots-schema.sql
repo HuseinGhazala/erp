@@ -35,6 +35,12 @@ CREATE POLICY "screenshots_read_own_or_admin" ON storage.objects FOR SELECT
   USING (
     bucket_id = 'screenshots' AND (
       (storage.foldername(name))[1] = auth.uid()::text
-      OR public.is_admin()
+      OR public.is_admin() = true
     )
   );
+
+-- سياسة إضافية: الأدمن يقرأ أي لقطة في bucket screenshots (لتجنب مشاكل التقييم)
+DROP POLICY IF EXISTS "screenshots_admin_read_any" ON storage.objects;
+CREATE POLICY "screenshots_admin_read_any" ON storage.objects FOR SELECT
+  TO authenticated
+  USING (bucket_id = 'screenshots' AND public.is_admin() = true);

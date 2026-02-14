@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Clock, 
   CheckCircle, 
@@ -67,6 +67,18 @@ const App = () => {
   const [newEmpPassword, setNewEmpPassword] = useState('');
   const [addEmpError, setAddEmpError] = useState('');
   const [addEmpSuccess, setAddEmpSuccess] = useState(false);
+  const [adminGalleryScreenshots, setAdminGalleryScreenshots] = useState([]);
+  const [adminGalleryLoading, setAdminGalleryLoading] = useState(false);
+
+  // الملف الشخصي للموظف (تحرير الاسم، الجوال، الصورة)
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileEditName, setProfileEditName] = useState('');
+  const [profileEditPhone, setProfileEditPhone] = useState('');
+  const [profileAvatarFile, setProfileAvatarFile] = useState(null);
+  const [profileAvatarPreview, setProfileAvatarPreview] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [avatarDisplayUrl, setAvatarDisplayUrl] = useState(null);
+  const [profileRefresh, setProfileRefresh] = useState(0);
   
   // AI States
   const [aiLoading, setAiLoading] = useState(false);
@@ -186,14 +198,22 @@ const App = () => {
       if (data?.length) setHistory(data.map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') })));
     };
     const loadProfile = async () => {
-      const { data } = await supabase.from('profiles').select('full_name, role').eq('id', user.id).maybeSingle();
-      if (data) setProfile(data);
-      else setProfile({ full_name: user.user_metadata?.full_name || user.email?.split('@')[0], role: 'موظف' });
+      const { data } = await supabase.from('profiles').select('full_name, role, avatar_url, phone').eq('id', user.id).maybeSingle();
+      if (data) {
+        setProfile(data);
+        if (data.avatar_url) {
+          const { data: signed } = await supabase.storage.from('avatars').createSignedUrl(data.avatar_url, 86400);
+          setAvatarDisplayUrl(signed?.signedUrl || null);
+        } else setAvatarDisplayUrl(null);
+      } else {
+        setProfile({ full_name: user.user_metadata?.full_name || user.email?.split('@')[0], role: 'موظف' });
+        setAvatarDisplayUrl(null);
+      }
     };
     loadTasks();
     loadHistory();
     loadProfile();
-  }, [user?.id]);
+  }, [user?.id, profileRefresh]);
 
   // تحميل قائمة الموظفين وإعداد اللقطات عند فتح لوحة الأدمن
   useEffect(() => {
@@ -295,6 +315,37 @@ const App = () => {
     if (!error) refetchAdminEmployees();
   };
 
+  const openProfileModal = () => {
+    setProfileEditName(profile?.full_name ?? '');
+    setProfileEditPhone(profile?.phone ?? '');
+    setProfileAvatarFile(null);
+    setProfileAvatarPreview(avatarDisplayUrl || '');
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!supabase || !user?.id || savingProfile) return;
+    setSavingProfile(true);
+    let avatarPath = profile?.avatar_url || null;
+    if (profileAvatarFile) {
+      const ext = profileAvatarFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const path = `${user.id}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, profileAvatarFile, { contentType: profileAvatarFile.type, upsert: true });
+      if (!uploadErr) avatarPath = path;
+    }
+    const { error } = await supabase.from('profiles').update({
+      full_name: profileEditName.trim() || null,
+      phone: profileEditPhone.trim() || null,
+      avatar_url: avatarPath
+    }).eq('id', user.id);
+    setSavingProfile(false);
+    if (!error) {
+      setProfileRefresh(r => r + 1);
+      setShowProfileModal(false);
+    }
+  };
+
   const handleSaveScreenshotInterval = async () => {
     if (!supabase || adminScreenshotInterval < 1 || adminScreenshotInterval > 120) return;
     await supabase.from('app_settings').upsert({ key: 'screenshot_interval_minutes', value: String(adminScreenshotInterval) }, { onConflict: 'key' });
@@ -331,9 +382,11 @@ const App = () => {
     const tasks = tasksRes.data || [];
     const screenshotRows = screensRes.data || [];
     const screenshotsWithUrls = [];
-    for (const row of screenshotRows) {
-      const { data: signed } = await supabase.storage.from('screenshots').createSignedUrl(row.file_path, 3600);
-      screenshotsWithUrls.push({ ...row, url: signed?.signedUrl || null });
+    if (screenshotRows.length > 0) {
+      const paths = screenshotRows.map(r => r.file_path);
+      const { data: signedList } = await supabase.storage.from('screenshots').createSignedUrls(paths, 3600);
+      const urls = (signedList || []).map((s, i) => s?.signedUrl || null);
+      screenshotRows.forEach((row, i) => screenshotsWithUrls.push({ ...row, url: urls[i] || null }));
     }
     setAdminActivityData({ sessions, tasks, screenshots: screenshotsWithUrls });
   };
@@ -692,6 +745,54 @@ const App = () => {
               </div>
               <button onClick={() => setShowAiModal(false)} className="w-full mt-6 bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95">فهمت، شكراً لك</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* مودال: الملف الشخصي (الموظف يعدّل اسمه، جواله، صورته) */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden border border-white/20 animate-in">
+            <div className="bg-indigo-600 p-6 flex justify-between items-center text-white">
+              <span className="font-bold flex items-center gap-3 text-lg"><User className="w-6 h-6"/> الملف الشخصي</span>
+              <button type="button" onClick={() => setShowProfileModal(false)} className="bg-white/10 p-2 rounded-full hover:bg-white/20"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleSaveProfile} className="p-6 space-y-5">
+              <div className="flex flex-col items-center gap-3">
+                <label className="block text-sm font-bold text-slate-700">الصورة الشخصية</label>
+                <div className="relative">
+                  <div className="w-24 h-24 rounded-2xl bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center">
+                    {profileAvatarPreview ? (
+                      <img src={profileAvatarPreview} alt="معاينة" className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-12 h-12 text-slate-400" />
+                    )}
+                  </div>
+                  <label className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2 rounded-xl cursor-pointer shadow-lg hover:bg-indigo-700">
+                    <Camera className="w-4 h-4"/>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { setProfileAvatarFile(f); setProfileAvatarPreview(URL.createObjectURL(f)); }
+                    }} />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">اختر صورة (JPG, PNG)</p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">الاسم الكامل</label>
+                <input type="text" value={profileEditName} onChange={e => setProfileEditName(e.target.value)} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="الاسم كما تريده في التطبيق" />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">رقم الجوال</label>
+                <input type="tel" value={profileEditPhone} onChange={e => setProfileEditPhone(e.target.value)} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none focus:ring-2 focus:ring-indigo-200" placeholder="مثال: 05xxxxxxxx" dir="ltr" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowProfileModal(false)} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600">إلغاء</button>
+                <button type="submit" disabled={savingProfile} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-70 flex items-center justify-center gap-2">
+                  {savingProfile ? <Loader2 className="w-5 h-5 animate-spin"/> : null} حفظ
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1159,15 +1260,23 @@ const App = () => {
 
       <footer className="w-full max-w-4xl mt-auto mb-10 p-10 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-8">
         <div className="flex items-center gap-5">
-          <div className="w-14 h-14 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl rotate-3"><User className="w-8 h-8"/></div>
+          <div className="w-14 h-14 rounded-[1.5rem] overflow-hidden bg-slate-900 flex items-center justify-center text-white shadow-2xl shrink-0">
+            {avatarDisplayUrl ? <img src={avatarDisplayUrl} alt="" className="w-full h-full object-cover"/> : <User className="w-8 h-8"/>}
+          </div>
           <div className="text-right">
-            <p className="text-xl font-black text-slate-800 leading-none">{user?.user_metadata?.full_name || user?.email || 'موظف'}</p>
-            <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-[0.2em]">{user?.email || '—'}</p>
+            <p className="text-xl font-black text-slate-800 leading-none">{displayName}</p>
+            <p className="text-xs text-slate-400 mt-1">{user?.email || '—'}</p>
+            {profile?.phone ? <p className="text-sm text-slate-500 mt-1" dir="ltr">{profile.phone}</p> : null}
           </div>
           {user && supabase && (
-            <button onClick={handleLogout} className="mr-4 p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-2 font-bold text-sm" title="تسجيل الخروج">
-              <LogOut className="w-5 h-5"/> خروج
-            </button>
+            <div className="flex items-center gap-2 mr-2">
+              <button type="button" onClick={openProfileModal} className="p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition flex items-center gap-2 font-bold text-sm" title="الملف الشخصي">
+                <User className="w-5 h-5"/> الملف الشخصي
+              </button>
+              <button onClick={handleLogout} className="p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600 transition flex items-center gap-2 font-bold text-sm" title="تسجيل الخروج">
+                <LogOut className="w-5 h-5"/> خروج
+              </button>
+            </div>
           )}
         </div>
         <div className="flex flex-col items-end gap-3">
