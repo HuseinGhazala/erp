@@ -18,7 +18,7 @@ export default function HistoryTab({ history, isAdminView, activeUserIds, histor
             <p className="text-sm text-base-content/50">جلسات عمل جميع الموظفين — تتحدث تلقائياً مع السيرفر</p>
           )}
         </div>
-        {isAdminView && onRefresh && (
+        {onRefresh && (
           <button
             type="button"
             className="btn btn-primary btn-sm sm:btn-md rounded-2xl font-bold gap-2 shrink-0"

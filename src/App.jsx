@@ -85,11 +85,14 @@ const App = () => {
   const [addEmpSuccess, setAddEmpSuccess] = useState(false);
   const [adminGalleryScreenshots, setAdminGalleryScreenshots] = useState([]);
   const [adminGalleryLoading, setAdminGalleryLoading] = useState(false);
+  const [userSavedScreenshots, setUserSavedScreenshots] = useState([]);
+  const [userScreenshotsLoading, setUserScreenshotsLoading] = useState(false);
   const [employeeDailyHours, setEmployeeDailyHours] = useState({});
   const [employeeSalaryData, setEmployeeSalaryData] = useState({});
   const [adminHistory, setAdminHistory] = useState([]);
   const [adminHistoryLoading, setAdminHistoryLoading] = useState(false);
   const [adminHistoryError, setAdminHistoryError] = useState(null);
+  const [userHistoryLoading, setUserHistoryLoading] = useState(false);
   const [activeUserIds, setActiveUserIds] = useState([]);
   const [showSalaryModal, setShowSalaryModal] = useState(false);
   const [salaryEditEmployee, setSalaryEditEmployee] = useState(null);
@@ -264,16 +267,25 @@ const App = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // تحميل أرشيف جلسات الموظف (يُستدعى عند الدخول وعند الضغط على «تحديث» في السجل)
+  const loadUserHistory = useCallback(async () => {
+    if (!user?.id || !supabase) return;
+    const { data } = await supabase.from('work_sessions').select('id, date, start_time as start, end_time as end, duration, tasks_completed as tasks').eq('user_id', user.id).order('created_at', { ascending: false });
+    setHistory((data || []).map(h => ({ ...h, dateDisplay: new Date((h.date || '') + 'T12:00:00').toLocaleDateString('ar-EG') })));
+  }, [user?.id, supabase]);
+
+  const handleRefreshUserHistory = useCallback(async () => {
+    setUserHistoryLoading(true);
+    await loadUserHistory();
+    setUserHistoryLoading(false);
+  }, [loadUserHistory]);
+
   // تحميل المهام والأرشيف وملف الموظف من Supabase عند وجود مستخدم
   useEffect(() => {
     if (!user?.id || !supabase) return;
     const loadTasks = async () => {
       const { data } = await supabase.from('tasks').select('id, text, completed').eq('user_id', user.id).order('created_at', { ascending: false });
       if (data?.length) setTasks(data.map(t => ({ id: t.id, text: t.text, completed: t.completed })));
-    };
-    const loadHistory = async () => {
-      const { data } = await supabase.from('work_sessions').select('date, start_time as start, end_time as end, duration, tasks_completed as tasks').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (data?.length) setHistory(data.map(h => ({ ...h, dateDisplay: new Date(h.date + 'T12:00:00').toLocaleDateString('ar-EG') })));
     };
     const loadProfile = async () => {
       const { data } = await supabase.from('profiles').select('full_name, role, avatar_url, phone, job_title').eq('id', user.id).maybeSingle();
@@ -289,9 +301,9 @@ const App = () => {
       }
     };
     loadTasks();
-    loadHistory();
+    loadUserHistory();
     loadProfile();
-  }, [user?.id, profileRefresh]);
+  }, [user?.id, profileRefresh, loadUserHistory]);
 
   const getWorkingDaysInMonth = (year, month) => {
     const d = new Date(year, month - 1, 1);
@@ -354,6 +366,23 @@ const App = () => {
   }, [isAdmin, activeTab, supabase]);
 
   const formatSecondsToHM = (sec) => sec == null || sec === 0 ? '0:00' : `${Math.floor(sec / 3600)}:${Math.floor((sec % 3600) / 60).toString().padStart(2, '0')}`;
+
+  // تحميل لقطات الموظف المحفوظة (للعرض في التتبع عند فتح التبويب)
+  useEffect(() => {
+    if (!supabase || !user?.id || isAdmin || activeTab !== 'monitor') return;
+    setUserScreenshotsLoading(true);
+    const loadUserScreenshots = async () => {
+      const { data: rows } = await supabase.from('screenshots').select('id, file_path, time_display, is_virtual, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(2000);
+      const list = rows || [];
+      const withUrls = list.map((row) => {
+        const { data } = supabase.storage.from('screenshots').getPublicUrl(row.file_path);
+        return { ...row, url: data?.publicUrl || null };
+      });
+      setUserSavedScreenshots(withUrls);
+      setUserScreenshotsLoading(false);
+    };
+    loadUserScreenshots();
+  }, [supabase, user?.id, isAdmin, activeTab]);
 
   // تحميل لقطات جميع الموظفين لمعرض التتبع (الأدمن فقط)
   useEffect(() => {
@@ -1329,6 +1358,8 @@ const App = () => {
         }}
         adminGalleryLoading={adminGalleryLoading}
         adminGalleryScreenshots={adminGalleryScreenshots}
+        userSavedScreenshots={userSavedScreenshots}
+        userScreenshotsLoading={userScreenshotsLoading}
         setScreenshots={setScreenshots}
         takeScreenshot={takeScreenshot}
         history={history}
@@ -1336,7 +1367,9 @@ const App = () => {
         activeUserIds={activeUserIds}
         adminHistoryLoading={adminHistoryLoading}
         adminHistoryError={adminHistoryError}
+        userHistoryLoading={userHistoryLoading}
         loadAdminHistory={loadAdminHistory}
+        loadUserHistory={handleRefreshUserHistory}
         adminLoading={adminLoading}
         adminScreenshotInterval={adminScreenshotInterval}
         setAdminScreenshotInterval={setAdminScreenshotInterval}

@@ -32,6 +32,8 @@ export default function MainContent({
   // monitor
   adminGalleryLoading,
   adminGalleryScreenshots,
+  userSavedScreenshots,
+  userScreenshotsLoading,
   setScreenshots,
   takeScreenshot,
   // history
@@ -40,7 +42,9 @@ export default function MainContent({
   activeUserIds,
   adminHistoryLoading,
   adminHistoryError,
+  userHistoryLoading,
   loadAdminHistory,
+  loadUserHistory,
   // admin
   adminLoading,
   adminScreenshotInterval,
@@ -101,6 +105,8 @@ export default function MainContent({
           monitoringEnabled={monitoringEnabled}
           adminGalleryLoading={adminGalleryLoading}
           adminGalleryScreenshots={adminGalleryScreenshots}
+          userSavedScreenshots={userSavedScreenshots}
+          userScreenshotsLoading={userScreenshotsLoading}
           screenshots={screenshots}
           setScreenshots={setScreenshots}
         />
@@ -124,9 +130,9 @@ export default function MainContent({
           history={isAdmin ? adminHistory : history}
           isAdminView={!!isAdmin}
           activeUserIds={isAdmin ? activeUserIds : undefined}
-          historyLoading={isAdmin ? adminHistoryLoading : undefined}
+          historyLoading={isAdmin ? adminHistoryLoading : userHistoryLoading}
           historyError={isAdmin ? adminHistoryError : undefined}
-          onRefresh={isAdmin ? loadAdminHistory : undefined}
+          onRefresh={isAdmin ? loadAdminHistory : loadUserHistory}
         />
       )}
 
