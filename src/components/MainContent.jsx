@@ -6,7 +6,6 @@ import LeaveTab from './LeaveTab';
 import ReportsTab from './ReportsTab';
 import AdminPanel from './AdminPanel';
 import SettingsTab from './SettingsTab';
-import ChatTab from './ChatTab';
 
 export default function MainContent({
   activeTab,
@@ -33,8 +32,6 @@ export default function MainContent({
   // monitor
   adminGalleryLoading,
   adminGalleryScreenshots,
-  userSavedScreenshots,
-  userScreenshotsLoading,
   setScreenshots,
   takeScreenshot,
   // history
@@ -77,31 +74,6 @@ export default function MainContent({
   setSidebarCollapsed,
   storageKeys,
   setToastMessage,
-  chatContacts,
-  chatMessages,
-  selectedChatUserId,
-  onSelectChatUser,
-  onSendChatMessage,
-  chatLoading,
-  sendChatLoading,
-  chatInput,
-  setChatInput,
-  chatGroups,
-  chatGroupMessages,
-  selectedChatGroupId,
-  onSelectChatGroup,
-  chatGroupMembersMap,
-  chatGroupLoading,
-  sendChatGroupLoading,
-  onSendChatGroupMessage,
-  showCreateGroupModal,
-  setShowCreateGroupModal,
-  createGroupName,
-  setCreateGroupName,
-  createGroupSelectedIds,
-  setCreateGroupSelectedIds,
-  createGroupLoading,
-  onCreateChatGroup,
 }) {
   return (
     <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-6 pb-24">
@@ -131,8 +103,6 @@ export default function MainContent({
           monitoringEnabled={monitoringEnabled}
           adminGalleryLoading={adminGalleryLoading}
           adminGalleryScreenshots={adminGalleryScreenshots}
-          userSavedScreenshots={userSavedScreenshots}
-          userScreenshotsLoading={userScreenshotsLoading}
           screenshots={screenshots}
           setScreenshots={setScreenshots}
         />
@@ -159,37 +129,6 @@ export default function MainContent({
           historyLoading={isAdmin ? adminHistoryLoading : userHistoryLoading}
           historyError={isAdmin ? adminHistoryError : undefined}
           onRefresh={isAdmin ? loadAdminHistory : loadUserHistory}
-        />
-      )}
-
-      {activeTab === 'chat' && (
-        <ChatTab
-          currentUserId={user?.id}
-          chatContacts={chatContacts}
-          chatMessages={chatMessages}
-          selectedContactId={selectedChatUserId}
-          onSelectContact={onSelectChatUser}
-          onSendMessage={onSendChatMessage}
-          chatLoading={chatLoading}
-          sendLoading={sendChatLoading}
-          chatInput={chatInput}
-          setChatInput={setChatInput}
-          chatGroups={chatGroups}
-          chatGroupMessages={chatGroupMessages}
-          selectedChatGroupId={selectedChatGroupId}
-          onSelectChatGroup={onSelectChatGroup}
-          chatGroupMembersMap={chatGroupMembersMap}
-          chatGroupLoading={chatGroupLoading}
-          sendChatGroupLoading={sendChatGroupLoading}
-          onSendChatGroupMessage={onSendChatGroupMessage}
-          showCreateGroupModal={showCreateGroupModal}
-          setShowCreateGroupModal={setShowCreateGroupModal}
-          createGroupName={createGroupName}
-          setCreateGroupName={setCreateGroupName}
-          createGroupSelectedIds={createGroupSelectedIds}
-          setCreateGroupSelectedIds={setCreateGroupSelectedIds}
-          createGroupLoading={createGroupLoading}
-          onCreateChatGroup={onCreateChatGroup}
         />
       )}
 

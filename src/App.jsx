@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Swal from 'sweetalert2';
 import { Loader2 } from 'lucide-react';
 import { supabase, isSupabaseEnabled } from './lib/supabase';
-import { playNotificationSound } from './utils/notificationSound';
 import AuthScreen from './components/AuthScreen';
 import BlockedScreen from './components/BlockedScreen';
 import AiModal from './components/modals/AiModal';
@@ -17,10 +16,9 @@ import ResetPasswordForm from './components/ResetPasswordForm';
 import AppLayout from './components/AppLayout';
 import MainContent from './components/MainContent';
 
-// API Configuration - من .env (VITE_GEMINI_API_KEY). استخدم موديلاً مستقراً مثل gemini-2.0-flash
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}` : null;
+// API Configuration - من الكود أو من .env (VITE_GEMINI_API_KEY)
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyDZjChAhYFIb9qKztVMuXJ1_rINiB_Xlvw"; 
+const GEMINI_URL = apiKey ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}` : null;
 
 const STORAGE_KEYS = { THEME: 'trackify_theme', SIDEBAR: 'trackify_sidebar_collapsed' };
 
@@ -87,8 +85,6 @@ const App = () => {
   const [addEmpSuccess, setAddEmpSuccess] = useState(false);
   const [adminGalleryScreenshots, setAdminGalleryScreenshots] = useState([]);
   const [adminGalleryLoading, setAdminGalleryLoading] = useState(false);
-  const [userSavedScreenshots, setUserSavedScreenshots] = useState([]);
-  const [userScreenshotsLoading, setUserScreenshotsLoading] = useState(false);
   const [employeeDailyHours, setEmployeeDailyHours] = useState({});
   const [employeeSalaryData, setEmployeeSalaryData] = useState({});
   const [adminHistory, setAdminHistory] = useState([]);
@@ -110,25 +106,6 @@ const App = () => {
   const [avatarDisplayUrl, setAvatarDisplayUrl] = useState(null);
   const [profileRefresh, setProfileRefresh] = useState(0);
 
-  // ─── الشات الداخلي ───
-  const [chatContacts, setChatContacts] = useState([]);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [selectedChatUserId, setSelectedChatUserId] = useState(null);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [sendChatLoading, setSendChatLoading] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  // مجموعات الشات
-  const [chatGroups, setChatGroups] = useState([]);
-  const [chatGroupMessages, setChatGroupMessages] = useState([]);
-  const [selectedChatGroupId, setSelectedChatGroupId] = useState(null);
-  const [chatGroupLoading, setChatGroupLoading] = useState(false);
-  const [sendChatGroupLoading, setSendChatGroupLoading] = useState(false);
-  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
-  const [createGroupName, setCreateGroupName] = useState('');
-  const [createGroupSelectedIds, setCreateGroupSelectedIds] = useState([]);
-  const [createGroupLoading, setCreateGroupLoading] = useState(false);
-  const [chatGroupMembersMap, setChatGroupMembersMap] = useState({}); // groupId -> [{ id, full_name }]
-
   // ─── القسم 5: حالة المساعد الذكي (AI) ───
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState(null);
@@ -147,7 +124,6 @@ const App = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const sessionEndReminderShownRef = useRef(false);
-  const chatRealtimeRef = useRef({ selectedUserId: null, selectedGroupId: null, groupIds: [] });
 
   // ─── القسم 7: القيم المشتقة (Derived) ───
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'موظف';
@@ -260,15 +236,6 @@ const App = () => {
     return () => { supabase.removeChannel(channel); };
   }, [supabase, user?.id]);
 
-  // تحديث الـ ref للشات لاستخدامه في callback الـ Realtime
-  useEffect(() => {
-    chatRealtimeRef.current = {
-      selectedUserId: selectedChatUserId,
-      selectedGroupId: selectedChatGroupId,
-      groupIds: chatGroups.map((g) => g.id),
-    };
-  }, [selectedChatUserId, selectedChatGroupId, chatGroups]);
-
   // Supabase Auth: جلب الجلسة ومتابعة تغيير تسجيل الدخول + كشف رابط استعادة كلمة المرور
   useEffect(() => {
     if (!isSupabaseEnabled()) {
@@ -336,182 +303,6 @@ const App = () => {
     loadProfile();
   }, [user?.id, profileRefresh, loadUserHistory]);
 
-  // تحميل جهات اتصال الشات (الموظفون ما عدا المستخدم الحالي)
-  useEffect(() => {
-    if (!user?.id || !supabase || activeTab !== 'chat') return;
-    if (isAdmin && adminEmployees.length) {
-      setChatContacts(adminEmployees.filter((e) => e.id !== user.id).map((e) => ({ id: e.id, full_name: e.full_name || 'بدون اسم' })));
-      return;
-    }
-    supabase
-      .from('profiles')
-      .select('id, full_name, role')
-      .neq('id', user.id)
-      .then(({ data }) => setChatContacts((data || []).filter((p) => p.role !== 'محذوف').map((p) => ({ id: p.id, full_name: p.full_name || 'بدون اسم' }))));
-  }, [user?.id, supabase, activeTab, isAdmin, adminEmployees]);
-
-  // تحميل مجموعات الشات التي ينتمي لها المستخدم
-  const loadChatGroups = useCallback(async () => {
-    if (!supabase || !user?.id) return;
-    const { data: members } = await supabase
-      .from('chat_group_members')
-      .select('group_id')
-      .eq('user_id', user.id);
-    if (!members?.length) {
-      setChatGroups([]);
-      return;
-    }
-    const groupIds = [...new Set(members.map((m) => m.group_id))];
-    const { data: groups } = await supabase
-      .from('chat_groups')
-      .select('id, name, created_by, created_at')
-      .in('id', groupIds)
-      .order('created_at', { ascending: false });
-    setChatGroups(groups || []);
-  }, [supabase, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id || !supabase || activeTab !== 'chat') return;
-    loadChatGroups();
-  }, [user?.id, supabase, activeTab, loadChatGroups]);
-
-  // تحميل رسائل المحادثة مع المستخدم المحدد
-  const loadChatMessages = useCallback(async () => {
-    if (!supabase || !user?.id || !selectedChatUserId) return;
-    setChatLoading(true);
-    const otherId = selectedChatUserId;
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('id, sender_id, recipient_id, content, created_at')
-      .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherId}),and(sender_id.eq.${otherId},recipient_id.eq.${user.id})`)
-      .order('created_at', { ascending: true });
-    setChatMessages(data || []);
-    setChatLoading(false);
-  }, [supabase, user?.id, selectedChatUserId]);
-
-  useEffect(() => {
-    if (!selectedChatUserId) {
-      setChatMessages([]);
-      return;
-    }
-    setSelectedChatGroupId(null);
-    loadChatMessages();
-  }, [selectedChatUserId, loadChatMessages]);
-
-  // تحميل رسائل المجموعة وأعضاء المجموعة المحددة
-  const loadChatGroupMessages = useCallback(async () => {
-    if (!supabase || !user?.id || !selectedChatGroupId) return;
-    setChatGroupLoading(true);
-    const [msgRes, memRes] = await Promise.all([
-      supabase
-        .from('chat_group_messages')
-        .select('id, group_id, sender_id, content, created_at')
-        .eq('group_id', selectedChatGroupId)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('chat_group_members')
-        .select('user_id')
-        .eq('group_id', selectedChatGroupId),
-    ]);
-    const memberIds = (memRes.data || []).map((m) => m.user_id).filter(Boolean);
-    setChatGroupMessages(msgRes.data || []);
-    if (memberIds.length) {
-      const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', memberIds);
-      const nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.full_name || 'بدون اسم']));
-      setChatGroupMembersMap((prev) => ({ ...prev, [selectedChatGroupId]: memberIds.map((id) => ({ id, full_name: nameMap[id] || 'بدون اسم' })) }));
-    }
-    setChatGroupLoading(false);
-  }, [supabase, user?.id, selectedChatGroupId]);
-
-  useEffect(() => {
-    if (!selectedChatGroupId) {
-      setChatGroupMessages([]);
-      return;
-    }
-    setSelectedChatUserId(null);
-    loadChatGroupMessages();
-  }, [selectedChatGroupId, loadChatGroupMessages]);
-
-  const sendChatMessage = useCallback(
-    async (content) => {
-      if (!supabase || !user?.id || !selectedChatUserId || !content?.trim()) return;
-      setSendChatLoading(true);
-      await supabase.from('chat_messages').insert({ sender_id: user.id, recipient_id: selectedChatUserId, content: content.trim() });
-      setSendChatLoading(false);
-      loadChatMessages();
-    },
-    [supabase, user?.id, selectedChatUserId, loadChatMessages]
-  );
-
-  const sendChatGroupMessage = useCallback(
-    async (content) => {
-      if (!supabase || !user?.id || !selectedChatGroupId || !content?.trim()) return;
-      setSendChatGroupLoading(true);
-      await supabase.from('chat_group_messages').insert({ group_id: selectedChatGroupId, sender_id: user.id, content: content.trim() });
-      setSendChatGroupLoading(false);
-      loadChatGroupMessages();
-    },
-    [supabase, user?.id, selectedChatGroupId, loadChatGroupMessages]
-  );
-
-  const createChatGroup = useCallback(
-    async (name, memberIds) => {
-      if (!supabase || !user?.id || !name?.trim()) return;
-      setCreateGroupLoading(true);
-      const { data: group, error: groupErr } = await supabase
-        .from('chat_groups')
-        .insert({ name: name.trim(), created_by: user.id })
-        .select('id')
-        .single();
-      if (groupErr || !group?.id) {
-        setCreateGroupLoading(false);
-        setToastMessage?.('فشل إنشاء المجموعة');
-        return;
-      }
-      const allUserIds = [user.id, ...(memberIds || []).filter((id) => id !== user.id)];
-      await supabase.from('chat_group_members').insert(allUserIds.map((user_id) => ({ group_id: group.id, user_id })));
-      setCreateGroupLoading(false);
-      setShowCreateGroupModal(false);
-      setCreateGroupName('');
-      setCreateGroupSelectedIds([]);
-      setToastMessage?.('تم إنشاء المجموعة');
-      loadChatGroups();
-      setSelectedChatGroupId(group.id);
-      setSelectedChatUserId(null);
-    },
-    [supabase, user?.id, loadChatGroups, setToastMessage]
-  );
-
-  // إشعار صوتي عند استلام رسالة جديدة (مباشرة أو مجموعة) + تحديث المحادثة المفتوحة
-  useEffect(() => {
-    if (!supabase || !user?.id) return;
-    const onNewDirectMessage = (payload) => {
-      const row = payload.new;
-      if (!row || row.sender_id === user.id) return;
-      if (document.visibilityState === 'visible') playNotificationSound();
-      if (chatRealtimeRef.current.selectedUserId === row.sender_id) loadChatMessages();
-    };
-    const onNewGroupMessage = (payload) => {
-      const row = payload.new;
-      if (!row || row.sender_id === user.id) return;
-      if (!chatRealtimeRef.current.groupIds.includes(row.group_id)) return;
-      if (document.visibilityState === 'visible') playNotificationSound();
-      if (chatRealtimeRef.current.selectedGroupId === row.group_id) loadChatGroupMessages();
-    };
-    const ch1 = supabase
-      .channel('chat_messages_realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `recipient_id=eq.${user.id}` }, onNewDirectMessage)
-      .subscribe();
-    const ch2 = supabase
-      .channel('chat_group_messages_realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_group_messages' }, onNewGroupMessage)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch1);
-      supabase.removeChannel(ch2);
-    };
-  }, [supabase, user?.id, loadChatMessages, loadChatGroupMessages]);
-
   const getWorkingDaysInMonth = (year, month) => {
     const d = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0).getDate();
@@ -573,23 +364,6 @@ const App = () => {
   }, [isAdmin, activeTab, supabase]);
 
   const formatSecondsToHM = (sec) => sec == null || sec === 0 ? '0:00' : `${Math.floor(sec / 3600)}:${Math.floor((sec % 3600) / 60).toString().padStart(2, '0')}`;
-
-  // تحميل لقطات الموظف المحفوظة (للعرض في التتبع عند فتح التبويب)
-  useEffect(() => {
-    if (!supabase || !user?.id || isAdmin || activeTab !== 'monitor') return;
-    setUserScreenshotsLoading(true);
-    const loadUserScreenshots = async () => {
-      const { data: rows } = await supabase.from('screenshots').select('id, file_path, time_display, is_virtual, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(2000);
-      const list = rows || [];
-      const withUrls = list.map((row) => {
-        const { data } = supabase.storage.from('screenshots').getPublicUrl(row.file_path);
-        return { ...row, url: data?.publicUrl || null };
-      });
-      setUserSavedScreenshots(withUrls);
-      setUserScreenshotsLoading(false);
-    };
-    loadUserScreenshots();
-  }, [supabase, user?.id, isAdmin, activeTab]);
 
   // تحميل لقطات جميع الموظفين لمعرض التتبع (الأدمن فقط)
   useEffect(() => {
@@ -1210,49 +984,42 @@ const App = () => {
     } catch (_) {}
   };
 
-  // استدعاء Gemini وإرجاع النص أو رسالة خطأ (للاستخدام في الاقتراحات أو التحليل)
+  // استدعاء Gemini وإرجاع النص فقط (للاستخدام في الاقتراحات أو التحليل الأسبوعي)
   const getGeminiResponse = useCallback(async (prompt) => {
-    if (!GEMINI_URL) return { text: null, error: 'لم يتم ضبط مفتاح Gemini (VITE_GEMINI_API_KEY في .env)' };
+    if (!GEMINI_URL) return null;
     let delay = 1000;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       try {
         const response = await fetch(GEMINI_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: 'أنت مساعد إداري ذكي. ردودك احترافية وبالعربية.' }] }
+            systemInstruction: { parts: [{ text: "أنت مساعد إداري ذكي. ردودك احترافية وبالعربية." }] }
           })
         });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          const msg = data?.error?.message || data?.error?.status || `خطأ من الخادم: ${response.status}`;
-          return { text: null, error: msg };
-        }
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        if (text) return { text, error: null };
-        const blockReason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason;
-        return { text: null, error: blockReason ? `لم يُرجع النموذج نصاً (${blockReason}).` : 'لم يُرجع النموذج رداً.' };
-      } catch (e) {
-        const errMsg = e?.message || 'خطأ في الشبكة أو الاتصال.';
-        if (i === 2) return { text: null, error: errMsg };
-        await new Promise((r) => setTimeout(r, delay));
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } catch (_) {
+        if (i === 4) return null;
+        await new Promise(r => setTimeout(r, delay));
         delay *= 2;
       }
     }
-    return { text: null, error: 'عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.' };
+    return null;
   }, []);
 
   const callGemini = useCallback(async (prompt) => {
     if (!GEMINI_URL) {
-      setAiResponse('لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env ثم أعد تشغيل المشروع.');
+      setAiResponse("لم يتم ضبط مفتاح Gemini. أضف VITE_GEMINI_API_KEY في ملف .env");
       setShowAiModal(true);
       return;
     }
     setAiLoading(true);
     try {
-      const { text, error } = await getGeminiResponse(prompt);
-      setAiResponse(text || error || 'عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.');
+      const text = await getGeminiResponse(prompt);
+      setAiResponse(text || "عذراً، لم نتمكن من الاتصال بالذكاء الاصطناعي حالياً.");
       setShowAiModal(true);
     } finally {
       setAiLoading(false);
@@ -1298,7 +1065,7 @@ const App = () => {
 
   // اقتراح مهام لموظف حسب المسمى (لنموذج إضافة مهمة)
   const suggestTasksForEmployee = useCallback(async (emp) => {
-    const { text } = await getGeminiResponse(
+    const text = await getGeminiResponse(
       `اقترح 5 مهام عمل مناسبة لموظف بمسمى وظيفي: ${emp?.job_title || 'موظف'}. أعد القائمة فقط: سطر واحد لكل مهمة، تبدأ برقم ثم نقطة ثم نص المهمة، بدون عناوين أو شرح إضافي.`
     );
     if (!text) return [];
@@ -1572,8 +1339,6 @@ const App = () => {
         }}
         adminGalleryLoading={adminGalleryLoading}
         adminGalleryScreenshots={adminGalleryScreenshots}
-        userSavedScreenshots={userSavedScreenshots}
-        userScreenshotsLoading={userScreenshotsLoading}
         setScreenshots={setScreenshots}
         takeScreenshot={takeScreenshot}
         history={history}
@@ -1613,31 +1378,6 @@ const App = () => {
         setSidebarCollapsed={setSidebarCollapsed}
         storageKeys={STORAGE_KEYS}
         setToastMessage={setToastMessage}
-        chatContacts={chatContacts}
-        chatMessages={chatMessages}
-        selectedChatUserId={selectedChatUserId}
-        onSelectChatUser={setSelectedChatUserId}
-        onSendChatMessage={sendChatMessage}
-        chatLoading={chatLoading}
-        sendChatLoading={sendChatLoading}
-        chatInput={chatInput}
-        setChatInput={setChatInput}
-        chatGroups={chatGroups}
-        chatGroupMessages={chatGroupMessages}
-        selectedChatGroupId={selectedChatGroupId}
-        onSelectChatGroup={setSelectedChatGroupId}
-        chatGroupMembersMap={chatGroupMembersMap}
-        chatGroupLoading={chatGroupLoading}
-        sendChatGroupLoading={sendChatGroupLoading}
-        onSendChatGroupMessage={sendChatGroupMessage}
-        showCreateGroupModal={showCreateGroupModal}
-        setShowCreateGroupModal={setShowCreateGroupModal}
-        createGroupName={createGroupName}
-        setCreateGroupName={setCreateGroupName}
-        createGroupSelectedIds={createGroupSelectedIds}
-        setCreateGroupSelectedIds={setCreateGroupSelectedIds}
-        createGroupLoading={createGroupLoading}
-        onCreateChatGroup={createChatGroup}
       />
         </AppLayout>
       )}
